@@ -1,0 +1,6 @@
+# Скрипты и юнит, которые исполняются/читаются на Linux, — всегда LF,
+# иначе Windows-клиент закоммитит CRLF и на Ubuntu bash упадёт с "bad interpreter".
+* text=auto
+*.sh text eol=lf
+*.service text eol=lf
+run.py text eol=lf

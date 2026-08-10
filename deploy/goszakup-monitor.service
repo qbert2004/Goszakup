@@ -1,0 +1,46 @@
+[Unit]
+Description=Мониторинг лотов goszakup
+Documentation=file:///opt/goszakup-monitor/README.md
+# Сеть нужна с первой секунды: приложение сразу идёт на площадку.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=goszakup
+Group=goszakup
+WorkingDirectory=/opt/goszakup-monitor
+ExecStart=/opt/goszakup-monitor/.venv/bin/python run.py
+
+# Сервер стоит в офисе: пропало питание — машина поднимется и сервис встанет сам.
+Restart=always
+RestartSec=30
+
+# Логи в journalctl, без своих файлов и ротации.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=goszakup-monitor
+# Python буферизует вывод — без этого логи появляются пачками с опозданием.
+Environment=PYTHONUNBUFFERED=1
+
+# Приложение ходит только наружу и пишет только в свою папку. Всё остальное закрыто.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# Каталог целиком, а не только monitor.db: SQLite при записи создаёт рядом
+# monitor.db-journal, и без прав на каталог сервис упадёт на первой транзакции.
+ReadWritePaths=/opt/goszakup-monitor
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+# Сеть НЕ режем: приложению нужен исходящий доступ к goszakup, Telegram и Google.
+# От чужих админку защищает не firewall, а бинд на 127.0.0.1 в run.py —
+# авторизации в ней нет, наружу выставлять нельзя.
+
+[Install]
+WantedBy=multi-user.target

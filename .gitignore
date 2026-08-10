@@ -1,0 +1,7 @@
+# Секреты — токен площадки, токен Telegram-бота. Никогда не коммитить.
+config/settings.local.json
+*.db
+.venv/
+__pycache__/
+*.pyc
+diag_*.json
