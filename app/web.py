@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -13,7 +15,28 @@ from . import config, diagnose, monitor, notify, scheduler, sheet
 from .goszakup import GoszakupClient, GoszakupError
 from .notify import TelegramError
 
+log = logging.getLogger("monitor")
+
 app = FastAPI(title="Мониторинг лотов goszakup")
+
+
+@app.on_event("startup")
+def _autostart_scheduler() -> None:
+    """Запуск расписания без веб-админки.
+
+    На headless-сервере нажать «Запустить» в браузере некому, а после
+    перезагрузки (systemd поднимает сервис заново) расписание иначе не
+    возобновилось бы. Поэтому: если токены уже заданы — стартуем сразу;
+    если нет — молчим и ждём, пока их впишут в settings.local.json и
+    перезапустят сервис. start() идемпотентен, повторно не навредит.
+    """
+    try:
+        config.load_or_die()
+    except RuntimeError as exc:
+        log.info("расписание не запущено, ждём настройки: %s", exc)
+        return
+    scheduler.start()
+    log.info("расписание запущено автоматически при старте сервиса")
 
 
 @app.get("/", response_class=HTMLResponse)
