@@ -32,8 +32,10 @@ def _autostart_scheduler() -> None:
     """
     try:
         config.load_or_die()
-    except RuntimeError as exc:
-        log.info("расписание не запущено, ждём настройки: %s", exc)
+    except Exception as exc:  # noqa: BLE001 — любой сбой конфига не должен ронять сервис
+        # Не только «нет токенов» (RuntimeError), но и битый JSON, нет файла и т.п.
+        # Веб-админка обязана подняться, чтобы настройки можно было починить.
+        log.warning("расписание не запущено, проверьте settings.local.json: %s", exc)
         return
     scheduler.start()
     log.info("расписание запущено автоматически при старте сервиса")
