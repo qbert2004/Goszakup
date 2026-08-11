@@ -6,6 +6,11 @@ set -euo pipefail
 APP_DIR=/opt/goszakup-monitor
 APP_USER=goszakup
 
+# Копируем текущий каталог (./) в APP_DIR, поэтому CWD должен быть корнем
+# репозитория. Переходим туда сами — чтобы скрипт работал и из корня
+# (sudo bash deploy/install.sh), и случайно запущенный из самой deploy/.
+cd "$(dirname "$0")/.."
+
 echo "==> проверяю систему"
 command -v python3 >/dev/null || { echo "нет python3"; exit 1; }
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
@@ -13,7 +18,7 @@ python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
 
 echo "==> ставлю зависимости системы"
 apt-get update -qq
-apt-get install -y -qq python3-venv python3-pip
+apt-get install -y -qq python3-venv python3-pip rsync
 
 echo "==> создаю пользователя $APP_USER (без shell, без home)"
 id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "$APP_USER"
