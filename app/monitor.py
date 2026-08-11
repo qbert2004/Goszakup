@@ -294,7 +294,7 @@ def run(
                     # Счётчик не прочитался. Молчим: "не знаем" — это не "ноль".
                     result.unreadable.append(lot["number_anno"])
                     continue
-                if count > settings.max_applications:
+                if not settings.applications_ok(count):
                     continue
 
                 lot["applications"] = count

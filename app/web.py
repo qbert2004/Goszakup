@@ -60,12 +60,16 @@ async def post_settings(payload: dict) -> JSONResponse:
     allowed = {
         "goszakup_token", "telegram_bot_token", "telegram_chat_id", "sheet_url",
         "window_hours_min", "respect_working_hours", "poll_interval_minutes",
-        "max_applications", "min_amount",
+        "max_applications", "min_competition", "min_amount",
     }
     changes = {k: v for k, v in payload.items() if k in allowed}
     for key in ("window_hours_min", "poll_interval_minutes", "max_applications"):
         if key in changes and changes[key] not in (None, ""):
             changes[key] = int(changes[key])
+    # Пустое min_competition = выключить верхний диапазон (None), иначе целое.
+    if "min_competition" in changes:
+        value = changes["min_competition"]
+        changes["min_competition"] = None if value in (None, "") else int(value)
     if "min_amount" in changes and changes["min_amount"] not in (None, ""):
         changes["min_amount"] = float(changes["min_amount"])
     if "respect_working_hours" in changes:
