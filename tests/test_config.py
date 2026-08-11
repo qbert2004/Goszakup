@@ -27,3 +27,11 @@ def test_zero_and_three_plus_with_gap():
     assert s.applications_ok(3)
     assert s.applications_ok(4)
     assert s.applications_ok(100)
+
+
+def test_applications_desc_matches_rule():
+    # Текст для heartbeat должен совпадать с реальным правилом.
+    assert Settings(max_applications=0).applications_desc() == "≤ 0"
+    assert Settings(max_applications=4).applications_desc() == "≤ 4"
+    assert Settings(max_applications=0, min_competition=3).applications_desc() == "0 или ≥ 3"
+    assert Settings(max_applications=1, min_competition=5).applications_desc() == "≤ 1 или ≥ 5"

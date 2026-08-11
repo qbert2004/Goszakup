@@ -92,6 +92,18 @@ class Settings:
             return True
         return False
 
+    def applications_desc(self) -> str:
+        """Человекочитаемое описание правила отбора по числу заявок.
+
+        Для heartbeat и подобных сообщений — чтобы текст совпадал с тем, что
+        реально проверяет applications_ok.
+        """
+        if self.min_competition is None:
+            return f"≤ {self.max_applications}"
+        if self.max_applications == 0:
+            return f"0 или ≥ {self.min_competition}"
+        return f"≤ {self.max_applications} или ≥ {self.min_competition}"
+
     def masked(self) -> dict:
         """Версия для отдачи в браузер: секреты не уходят на клиент в открытом виде."""
         data = asdict(self)

@@ -146,7 +146,7 @@ def format_heartbeat(result, settings) -> str:
         "",
         f"Просмотрено в окне: {checked}",
         f"Условия: до конца приёма ≤ {settings.window_hours_min} ч · "
-        f"заявок ≤ {settings.max_applications} · "
+        f"заявок {settings.applications_desc()} · "
         f"сумма от {settings.min_amount:,.0f} ₸".replace(",", " "),
     ]
     if result.unreadable:
