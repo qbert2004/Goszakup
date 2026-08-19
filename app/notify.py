@@ -95,17 +95,32 @@ def discover_chats(token: str) -> list[dict]:
     return list(chats.values())
 
 
+def _split_thread(chat_id) -> tuple[str, int | None]:
+    """Разбирает chat_id вида '-1004291773772_2' на чат и тему форума.
+
+    Часть после '_' — message_thread_id (топик супергруппы с включёнными темами).
+    Обычные chat_id underscore не содержат (они числовые), так что это однозначно.
+    Без '_' — обычный чат, тема None.
+    """
+    text = str(chat_id)
+    chat, sep, thread = text.rpartition("_")
+    if sep and thread.isdigit():
+        return chat, int(thread)
+    return text, None
+
+
 def send(token: str, chat_id: str, text: str, disable_preview: bool = True) -> dict:
-    return _call(
-        token,
-        "sendMessage",
-        {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": disable_preview,
-        },
-    )
+    chat, thread = _split_thread(chat_id)
+    payload = {
+        "chat_id": chat,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": disable_preview,
+    }
+    # Тема форума: если chat_id был вида '<чат>_<тема>', шлём в конкретный топик.
+    if thread is not None:
+        payload["message_thread_id"] = thread
+    return _call(token, "sendMessage", payload)
 
 
 WEEKDAYS = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")

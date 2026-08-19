@@ -11,6 +11,30 @@ import pytest
 from app import notify
 
 
+def test_split_thread_forum_topic():
+    # chat_id вида '<чат>_<тема>' -> чат + message_thread_id темы форума.
+    assert notify._split_thread("-1004291773772_1") == ("-1004291773772", 1)
+    assert notify._split_thread("-1004291773772_2") == ("-1004291773772", 2)
+    # обычный chat_id без темы
+    assert notify._split_thread("-5342465268") == ("-5342465268", None)
+
+
+def test_send_passes_message_thread_id():
+    with patch.object(notify, "_call", return_value={}) as call:
+        notify.send("TOK", "-1004291773772_1", "hi")
+    payload = call.call_args.args[2]
+    assert payload["chat_id"] == "-1004291773772"
+    assert payload["message_thread_id"] == 1
+
+
+def test_send_without_topic_has_no_thread_id():
+    with patch.object(notify, "_call", return_value={}) as call:
+        notify.send("TOK", "-5342465268", "hi")
+    payload = call.call_args.args[2]
+    assert payload["chat_id"] == "-5342465268"
+    assert "message_thread_id" not in payload
+
+
 def lot(n: int, apps: int = 0) -> dict:
     return {
         "name": f"Коммутатор сетевой {n}",
