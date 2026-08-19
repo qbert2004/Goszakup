@@ -63,10 +63,34 @@ def run_once() -> dict:
 
     run_id = store.start_run()
 
-    def send(lots: list[dict]) -> None:
-        notify.send_lots(
-            settings.telegram_bot_token, settings.telegram_chat_id, lots
-        )
+    def send(lots: list[dict]) -> list[dict]:
+        # Два потока: 0 / <= max_applications — основному боту менеджерам,
+        # 3+ (открытая конкуренция) — в отдельный бот. Разные аудитории.
+        # Возвращаем реально отправленные лоты, чтобы неотправленные (второй бот
+        # не настроен) не пометились в базе и попали в следующий проход.
+        main = [lot for lot in lots if not settings.is_competition(lot.get("applications"))]
+        comp = [lot for lot in lots if settings.is_competition(lot.get("applications"))]
+        dispatched: list[dict] = []
+        if main:
+            notify.send_lots(
+                settings.telegram_bot_token, settings.telegram_chat_id, main
+            )
+            dispatched += main
+        if comp:
+            if settings.competition_bot_token and settings.competition_chat_id:
+                notify.send_lots(
+                    settings.competition_bot_token, settings.competition_chat_id, comp
+                )
+                dispatched += comp
+            else:
+                # Второй бот не настроен — лоты 3+ не смешиваем с основным потоком
+                # и НЕ помечаем отправленными: честно жалуемся, ждём настройки.
+                log.warning(
+                    "лоты с открытой конкуренцией (3+) есть, но competition_bot_token/"
+                    "competition_chat_id не заданы — не отправлены: %s",
+                    [lot.get("number_anno") for lot in comp],
+                )
+        return dispatched
 
     try:
         result = monitor.run(settings, codes, send=send)

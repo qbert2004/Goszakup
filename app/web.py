@@ -58,7 +58,8 @@ def get_settings() -> JSONResponse:
 @app.post("/api/settings")
 async def post_settings(payload: dict) -> JSONResponse:
     allowed = {
-        "goszakup_token", "telegram_bot_token", "telegram_chat_id", "sheet_url",
+        "goszakup_token", "telegram_bot_token", "telegram_chat_id",
+        "competition_bot_token", "competition_chat_id", "sheet_url",
         "window_hours_min", "respect_working_hours", "poll_interval_minutes",
         "max_applications", "min_competition", "min_amount",
     }

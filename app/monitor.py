@@ -303,14 +303,21 @@ def run(
 
     # Отправляем одной пачкой в конце: Telegram режет на ~20 сообщениях в минуту,
     # а первый проход находит сразу сотню лотов.
+    # send может вернуть список реально отправленных лотов (когда часть ушла в
+    # отдельный бот, а часть — никуда, если тот не настроен). Тогда помечаем только
+    # их. Обратная совместимость: send, вернувший None, считается отправившим всё.
+    sent_lots = result.lots
     if send and result.lots:
-        send(result.lots)
-        result.notified = len(result.lots)
+        dispatched = send(result.lots)
+        if dispatched is not None:
+            sent_lots = dispatched
+        result.notified = len(sent_lots)
 
-    # Отметку в базе ставим только после успешной отправки: если Telegram упал,
-    # лот должен попасть в следующий проход, а не потеряться навсегда.
+    # Отметку в базе ставим только после успешной отправки: если Telegram упал
+    # или второй бот не настроен, лот должен попасть в следующий проход, а не
+    # потеряться навсегда.
     if persist:
-        for lot in result.lots:
+        for lot in sent_lots:
             store.mark_notified(lot)
 
     return result

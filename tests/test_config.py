@@ -29,6 +29,24 @@ def test_zero_and_three_plus_with_gap():
     assert s.applications_ok(100)
 
 
+def test_is_competition_upper_band():
+    # Верхний диапазон (3+) — то, что уходит в отдельный бот.
+    s = Settings(max_applications=0, min_competition=3)
+    assert not s.is_competition(0)
+    assert not s.is_competition(1)
+    assert not s.is_competition(2)
+    assert s.is_competition(3)
+    assert s.is_competition(10)
+    assert not s.is_competition(None)  # счётчик не прочитался — не считаем конкуренцией
+
+
+def test_is_competition_off_without_min():
+    # Без min_competition верхнего диапазона нет — всё идёт в основной бот.
+    s = Settings(max_applications=0)
+    assert not s.is_competition(0)
+    assert not s.is_competition(5)
+
+
 def test_applications_desc_matches_rule():
     # Текст для heartbeat должен совпадать с реальным правилом.
     assert Settings(max_applications=0).applications_desc() == "≤ 0"

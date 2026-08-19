@@ -25,9 +25,16 @@ class Settings:
     # Токен API goszakup — вставляется через веб-форму, в коде его нет.
     goszakup_token: str = ""
 
-    # Telegram
+    # Telegram — основной бот (лоты нижнего диапазона: 0 / <= max_applications).
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+
+    # Telegram — отдельный бот для лотов верхнего диапазона (>= min_competition,
+    # "открытая конкуренция", 3+). Другая аудитория, поэтому свой бот и чат.
+    # Если не заданы — лоты 3+ никуда не шлём (в лог предупреждение), чтобы не
+    # смешивать их с основным потоком менеджеров.
+    competition_bot_token: str = ""
+    competition_chat_id: str = ""
 
     # Источник списка ЕНСТРУ / ключевых слов
     sheet_url: str = DEFAULT_SHEET_URL
@@ -92,6 +99,18 @@ class Settings:
             return True
         return False
 
+    def is_competition(self, count) -> bool:
+        """Лот верхнего диапазона (открытая конкуренция) — идёт в отдельный бот.
+
+        True только когда задан min_competition и заявок не меньше него.
+        Нижний диапазон (0 / <= max_applications) сюда не попадает.
+        """
+        return (
+            self.min_competition is not None
+            and count is not None
+            and count >= self.min_competition
+        )
+
     def applications_desc(self) -> str:
         """Человекочитаемое описание правила отбора по числу заявок.
 
@@ -107,7 +126,7 @@ class Settings:
     def masked(self) -> dict:
         """Версия для отдачи в браузер: секреты не уходят на клиент в открытом виде."""
         data = asdict(self)
-        for key in ("goszakup_token", "telegram_bot_token"):
+        for key in ("goszakup_token", "telegram_bot_token", "competition_bot_token"):
             data[key] = _mask(data[key])
         return data
 
@@ -145,7 +164,8 @@ def update(**changes) -> Settings:
     for key, value in changes.items():
         if value is None:
             continue
-        if key in ("goszakup_token", "telegram_bot_token") and value.strip() == "":
+        if key in ("goszakup_token", "telegram_bot_token", "competition_bot_token") \
+                and value.strip() == "":
             continue
         setattr(settings, key, value)
     save(settings)
