@@ -101,14 +101,26 @@ def run_once() -> dict:
 
     store.finish_run(run_id, result.matched, result.passed, result.notified)
 
-    # Датчик жизни: если ничего не нашли, всё равно подаём голос. Молчание должно
-    # означать поломку, а не спокойный день — иначе умерший сервер не отличить.
-    if settings.daily_report and not result.lots:
-        notify.send(
-            settings.telegram_bot_token,
-            settings.telegram_chat_id,
-            notify.format_heartbeat(result, settings),
-        )
+    # Датчик жизни по каждой теме: молчание должно означать поломку, а не спокойный
+    # день. Тема получает "проверку" только если в ЕЁ диапазоне ничего не нашлось —
+    # если лоты были, они сами и есть признак жизни.
+    if settings.daily_report:
+        low = [lot for lot in result.lots if not settings.is_competition(lot.get("applications"))]
+        high = [lot for lot in result.lots if settings.is_competition(lot.get("applications"))]
+        # Тема "0 заявок" (нижний диапазон) — основной бот/чат.
+        if not low:
+            notify.send(
+                settings.telegram_bot_token,
+                settings.telegram_chat_id,
+                notify.format_heartbeat(result, settings, apps_desc=f"≤ {settings.max_applications}"),
+            )
+        # Тема "3+" (верхний диапазон) — только если она настроена.
+        if settings.min_competition is not None and settings.competition_chat_id and not high:
+            notify.send(
+                settings.competition_bot_token or settings.telegram_bot_token,
+                settings.competition_chat_id,
+                notify.format_heartbeat(result, settings, apps_desc=f"≥ {settings.min_competition}"),
+            )
 
     return {
         "matched": result.matched,

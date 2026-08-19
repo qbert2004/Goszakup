@@ -148,20 +148,24 @@ def _deadline_text(lot: dict) -> str:
     return f"до {when}" + (f" · {left}" if left else "")
 
 
-def format_heartbeat(result, settings) -> str:
+def format_heartbeat(result, settings, apps_desc: str | None = None) -> str:
     """Сводка, когда лотов не нашлось.
 
     Не отчётность, а датчик жизни. При запасе 48ч пустая пятница — норма (окно
     упирается в выходные, а дедлайнов там не ставят), поэтому молчание сломанного
     сервера неотличимо от молчания спокойного дня. Пришла сводка — система жива.
+
+    apps_desc — описание диапазона заявок для этой темы (напр. "≤ 0" или "≥ 3"),
+    чтобы в каждую тему шла своя проверка. По умолчанию — полное правило.
     """
     checked = result.matched
+    apps_desc = settings.applications_desc() if apps_desc is None else apps_desc
     parts = [
         "🟢 <b>Проверка выполнена, подходящих лотов нет</b>",
         "",
         f"Просмотрено в окне: {checked}",
         f"Условия: до конца приёма ≤ {settings.window_hours_min} ч · "
-        f"заявок {settings.applications_desc()} · "
+        f"заявок {apps_desc} · "
         f"сумма от {settings.min_amount:,.0f} ₸".replace(",", " "),
     ]
     if result.unreadable:
