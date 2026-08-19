@@ -77,17 +77,18 @@ def run_once() -> dict:
             )
             dispatched += main
         if comp:
-            if settings.competition_bot_token and settings.competition_chat_id:
-                notify.send_lots(
-                    settings.competition_bot_token, settings.competition_chat_id, comp
-                )
+            # Второй поток можно слать тем же ботом в другой чат (задан только
+            # competition_chat_id) или отдельным ботом (задан и competition_bot_token).
+            comp_token = settings.competition_bot_token or settings.telegram_bot_token
+            if settings.competition_chat_id and comp_token:
+                notify.send_lots(comp_token, settings.competition_chat_id, comp)
                 dispatched += comp
             else:
-                # Второй бот не настроен — лоты 3+ не смешиваем с основным потоком
+                # Второй чат не задан — лоты 3+ не смешиваем с основным потоком
                 # и НЕ помечаем отправленными: честно жалуемся, ждём настройки.
                 log.warning(
-                    "лоты с открытой конкуренцией (3+) есть, но competition_bot_token/"
-                    "competition_chat_id не заданы — не отправлены: %s",
+                    "лоты с открытой конкуренцией (3+) есть, но competition_chat_id "
+                    "не задан — не отправлены: %s",
                     [lot.get("number_anno") for lot in comp],
                 )
         return dispatched
