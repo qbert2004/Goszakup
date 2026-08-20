@@ -104,23 +104,30 @@ def run_once() -> dict:
     # Датчик жизни по каждой теме: молчание должно означать поломку, а не спокойный
     # день. Тема получает "проверку" только если в ЕЁ диапазоне ничего не нашлось —
     # если лоты были, они сами и есть признак жизни.
+    # Сканов может быть много (частый опрос ловит лоты быстрее), но проверка — это
+    # СУТОЧНЫЙ сигнал, а не сообщение на каждый скан. Поэтому шлём не чаще раза в
+    # день (по Астане) на тему, иначе heartbeat спамит при частом опросе.
     if settings.daily_report:
+        today = datetime.now(ASTANA).date().isoformat()
         low = [lot for lot in result.lots if not settings.is_competition(lot.get("applications"))]
         high = [lot for lot in result.lots if settings.is_competition(lot.get("applications"))]
         # Тема "0 заявок" (нижний диапазон) — основной бот/чат.
-        if not low:
+        if not low and _state.get("last_hb_low") != today:
             notify.send(
                 settings.telegram_bot_token,
                 settings.telegram_chat_id,
                 notify.format_heartbeat(result, settings, apps_desc=f"≤ {settings.max_applications}"),
             )
+            _state["last_hb_low"] = today
         # Тема "3+" (верхний диапазон) — только если она настроена.
-        if settings.min_competition is not None and settings.competition_chat_id and not high:
+        if (settings.min_competition is not None and settings.competition_chat_id
+                and not high and _state.get("last_hb_high") != today):
             notify.send(
                 settings.competition_bot_token or settings.telegram_bot_token,
                 settings.competition_chat_id,
                 notify.format_heartbeat(result, settings, apps_desc=f"≥ {settings.min_competition}"),
             )
+            _state["last_hb_high"] = today
 
     return {
         "matched": result.matched,
