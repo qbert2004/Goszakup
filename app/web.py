@@ -59,7 +59,9 @@ def get_settings() -> JSONResponse:
 async def post_settings(payload: dict) -> JSONResponse:
     allowed = {
         "goszakup_token", "telegram_bot_token", "telegram_chat_id",
-        "competition_bot_token", "competition_chat_id", "sheet_url",
+        "competition_bot_token", "competition_chat_id",
+        "watch_bins", "bin_chat_id", "bin_bot_token", "bin_min_amount",
+        "sheet_url",
         "window_hours_min", "respect_working_hours", "poll_interval_minutes",
         "max_applications", "min_competition", "min_amount",
     }
@@ -71,8 +73,9 @@ async def post_settings(payload: dict) -> JSONResponse:
     if "min_competition" in changes:
         value = changes["min_competition"]
         changes["min_competition"] = None if value in (None, "") else int(value)
-    if "min_amount" in changes and changes["min_amount"] not in (None, ""):
-        changes["min_amount"] = float(changes["min_amount"])
+    for key in ("min_amount", "bin_min_amount"):
+        if key in changes and changes[key] not in (None, ""):
+            changes[key] = float(changes[key])
     if "respect_working_hours" in changes:
         changes["respect_working_hours"] = bool(changes["respect_working_hours"])
     settings = config.update(**changes)

@@ -38,6 +38,16 @@ class Settings:
     competition_bot_token: str = ""
     competition_chat_id: str = ""
 
+    # БИН-трек: следим за конкретными заказчиками по БИН и шлём в отдельный чат при
+    # появлении их тендера (раннее предупреждение). Независимо от ЕНСТРУ-скана.
+    # Пусто -> трек выключен. bin_bot_token опционален (пусто = основной бот).
+    watch_bins: list[str] = field(default_factory=list)
+    bin_chat_id: str = ""
+    bin_bot_token: str = ""
+    # Минимальная сумма тендера для БИН-алерта, тенге. Своя, чтобы не зависеть от
+    # порога основного скана.
+    bin_min_amount: float = 2_000_000
+
     # Источник списка ЕНСТРУ / ключевых слов
     sheet_url: str = DEFAULT_SHEET_URL
 
@@ -128,7 +138,8 @@ class Settings:
     def masked(self) -> dict:
         """Версия для отдачи в браузер: секреты не уходят на клиент в открытом виде."""
         data = asdict(self)
-        for key in ("goszakup_token", "telegram_bot_token", "competition_bot_token"):
+        for key in ("goszakup_token", "telegram_bot_token", "competition_bot_token",
+                    "bin_bot_token"):
             data[key] = _mask(data[key])
         return data
 
@@ -166,8 +177,8 @@ def update(**changes) -> Settings:
     for key, value in changes.items():
         if value is None:
             continue
-        if key in ("goszakup_token", "telegram_bot_token", "competition_bot_token") \
-                and value.strip() == "":
+        if key in ("goszakup_token", "telegram_bot_token", "competition_bot_token",
+                   "bin_bot_token") and isinstance(value, str) and value.strip() == "":
             continue
         setattr(settings, key, value)
     save(settings)

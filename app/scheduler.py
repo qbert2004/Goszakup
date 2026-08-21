@@ -12,7 +12,8 @@ import logging
 import threading
 from datetime import datetime, timedelta, timezone
 
-from . import config, monitor, notify, sheet, store
+from . import config, monitor, notify, sheet, store, watch
+from .goszakup import GoszakupClient
 from .window import ASTANA
 
 log = logging.getLogger("monitor")
@@ -128,6 +129,23 @@ def run_once() -> dict:
                 notify.format_heartbeat(result, settings, apps_desc=f"≥ {settings.min_competition}"),
             )
             _state["last_hb_high"] = today
+
+    # БИН-трек: следим за конкретными заказчиками, шлём в отдельный чат при появлении
+    # их тендера. Полностью изолирован — свой запрос, свой дедуп, свой try/except:
+    # его падение (таймаут площадки и т.п.) не задевает основной скан, который выше
+    # уже отработал и разослал лоты.
+    if settings.watch_bins and settings.bin_chat_id:
+        try:
+            with GoszakupClient(settings.goszakup_token) as client:
+                fresh = watch.find_new(client, settings)
+            if fresh:
+                token = settings.bin_bot_token or settings.telegram_bot_token
+                notify.send_customer_lots(token, settings.bin_chat_id, fresh)
+                for lot in fresh:
+                    store.mark_notified_bin(lot)
+                log.info("БИН-трек: новых тендеров отправлено: %s", len(fresh))
+        except Exception as exc:  # noqa: BLE001 — трек не должен ронять проход
+            log.warning("БИН-трек упал (основной скан не затронут): %s", exc)
 
     return {
         "matched": result.matched,

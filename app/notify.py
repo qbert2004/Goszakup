@@ -230,6 +230,39 @@ def send_lots(token: str, chat_id: str, lots: list[dict]) -> int:
     return sent
 
 
+def format_customer_lot(lot: dict) -> str:
+    """Уведомление БИН-трека: появился тендер отслеживаемого заказчика.
+
+    Акцент на заказчике (ради него и следим). Числа заявок тут нет — это раннее
+    предупреждение о появлении, а не отбор по конкуренции.
+    """
+    esc = html.escape
+    deadline = _deadline_text(lot)
+    amount = lot.get("amount")
+    price = f"{amount:,.0f} ₸".replace(",", " ") if isinstance(amount, (int, float)) else "—"
+    return (
+        f"🏢 <b>{esc(str(lot.get('customer', '—')))}</b>\n"
+        f"новый тендер · приём {deadline}\n\n"
+        f"{esc(str(lot.get('name', '')))}\n"
+        f"Сумма: {price}\n"
+        f"Лот: {esc(str(lot.get('lot_number', '—')))} · "
+        f"объявление {esc(str(lot.get('number_anno', '—')))}\n"
+        f'\n<a href="{esc(str(lot.get("url", "")))}">Открыть лот на портале</a>'
+    )
+
+
+def send_customer_lots(token: str, chat_id: str, lots: list[dict]) -> int:
+    """Отправка тендеров БИН-трека — по одному, с паузой против лимита Telegram."""
+    if not lots:
+        return 0
+    urgent_first = sorted(lots, key=lambda lot: lot.get("hours_left") or 0)
+    for index, lot in enumerate(urgent_first):
+        if index:
+            time.sleep(SEND_PAUSE)
+        send(token, chat_id, format_customer_lot(lot))
+    return len(urgent_first)
+
+
 def format_lot(lot: dict) -> str:
     """Сообщение об одном лоте. Ссылка на лот — обязательна по ТЗ."""
     esc = html.escape

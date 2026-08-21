@@ -27,6 +27,18 @@ CREATE TABLE IF NOT EXISTS notified (
     notified_at TEXT NOT NULL
 );
 
+-- Отдельная память для БИН-трека (мониторинг конкретных заказчиков). Своя таблица,
+-- чтобы отправка в БИН-чат не мешала дедупу основного ЕНСТРУ-потока и наоборот.
+CREATE TABLE IF NOT EXISTS notified_bin (
+    lot_id      INTEGER PRIMARY KEY,
+    trd_buy_id  INTEGER,
+    lot_number  TEXT,
+    name        TEXT,
+    amount      REAL,
+    end_date    TEXT,
+    notified_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS enstru_cache (
     code        TEXT PRIMARY KEY,
     enstru_id   INTEGER,
@@ -84,19 +96,51 @@ def purge_closed() -> int:
     """Забывает лоты, у которых приём заявок уже закончился.
 
     Такой лот всё равно никогда не будет отправлен снова (window.should_alert
-    отсекает закрытые), поэтому память о нём — мёртвый груз.
+    отсекает закрытые), поэтому память о нём — мёртвый груз. Чистим обе памяти —
+    и основную, и БИН-трека.
 
     Возвращает число забытых лотов.
     """
     now = datetime.now(ASTANA).strftime("%Y-%m-%d %H:%M:%S")
     with connect() as conn:
-        cursor = conn.execute(
-            # end_date хранится строкой площадки "ГГГГ-ММ-ДД ЧЧ:ММ:СС" по Астане —
-            # такой формат сравнивается лексикографически.
+        # end_date хранится строкой площадки "ГГГГ-ММ-ДД ЧЧ:ММ:СС" по Астане —
+        # такой формат сравнивается лексикографически.
+        forgotten = conn.execute(
             "DELETE FROM notified WHERE end_date IS NOT NULL AND end_date <= ?",
             (now,),
+        ).rowcount
+        forgotten += conn.execute(
+            "DELETE FROM notified_bin WHERE end_date IS NOT NULL AND end_date <= ?",
+            (now,),
+        ).rowcount
+        return forgotten
+
+
+def already_notified_bin(lot_id: int) -> bool:
+    """Слали ли уже этот лот в БИН-трек. Отдельно от основного дедупа."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM notified_bin WHERE lot_id = ?", (lot_id,)
+        ).fetchone()
+        return row is not None
+
+
+def mark_notified_bin(lot: dict) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO notified_bin"
+            " (lot_id, trd_buy_id, lot_number, name, amount, end_date, notified_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                lot["lot_id"],
+                lot.get("trd_buy_id"),
+                lot.get("lot_number"),
+                lot.get("name"),
+                lot.get("amount"),
+                lot.get("end_date"),
+                _now(),
+            ),
         )
-        return cursor.rowcount
 
 
 def mark_notified(lot: dict) -> None:
