@@ -72,18 +72,28 @@ def run_once() -> dict:
         main = [lot for lot in lots if not settings.is_competition(lot.get("applications"))]
         comp = [lot for lot in lots if settings.is_competition(lot.get("applications"))]
         dispatched: list[dict] = []
+        # Каждая тема — независимо и в своём try. Сбой отправки в одну тему НЕ должен
+        # оставлять непомеченными лоты, уже доставленные в другую, иначе те долбят
+        # каждый скан. Помечается (попадает в dispatched) только реально доставленное;
+        # упавшее — не помечается и повторится в следующий проход.
         if main:
-            notify.send_lots(
-                settings.telegram_bot_token, settings.telegram_chat_id, main
-            )
-            dispatched += main
+            try:
+                notify.send_lots(
+                    settings.telegram_bot_token, settings.telegram_chat_id, main
+                )
+                dispatched += main
+            except Exception as exc:  # noqa: BLE001
+                log.warning("отправка в основной чат упала, лоты повторим: %s", exc)
         if comp:
             # Второй поток можно слать тем же ботом в другой чат (задан только
             # competition_chat_id) или отдельным ботом (задан и competition_bot_token).
             comp_token = settings.competition_bot_token or settings.telegram_bot_token
             if settings.competition_chat_id and comp_token:
-                notify.send_lots(comp_token, settings.competition_chat_id, comp)
-                dispatched += comp
+                try:
+                    notify.send_lots(comp_token, settings.competition_chat_id, comp)
+                    dispatched += comp
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("отправка в тему 3+ упала, лоты повторим: %s", exc)
             else:
                 # Второй чат не задан — лоты 3+ не смешиваем с основным потоком
                 # и НЕ помечаем отправленными: честно жалуемся, ждём настройки.
@@ -114,21 +124,27 @@ def run_once() -> dict:
         high = [lot for lot in result.lots if settings.is_competition(lot.get("applications"))]
         # Тема "0 заявок" (нижний диапазон) — основной бот/чат.
         if not low and _state.get("last_hb_low") != today:
-            notify.send(
-                settings.telegram_bot_token,
-                settings.telegram_chat_id,
-                notify.format_heartbeat(result, settings, apps_desc=f"≤ {settings.max_applications}"),
-            )
-            _state["last_hb_low"] = today
+            try:
+                notify.send(
+                    settings.telegram_bot_token,
+                    settings.telegram_chat_id,
+                    notify.format_heartbeat(result, settings, apps_desc=f"≤ {settings.max_applications}"),
+                )
+                _state["last_hb_low"] = today
+            except Exception as exc:  # noqa: BLE001 — битая тема не должна ронять проход
+                log.warning("проверка в тему «0 заявок» не ушла: %s", exc)
         # Тема "3+" (верхний диапазон) — только если она настроена.
         if (settings.min_competition is not None and settings.competition_chat_id
                 and not high and _state.get("last_hb_high") != today):
-            notify.send(
-                settings.competition_bot_token or settings.telegram_bot_token,
-                settings.competition_chat_id,
-                notify.format_heartbeat(result, settings, apps_desc=f"≥ {settings.min_competition}"),
-            )
-            _state["last_hb_high"] = today
+            try:
+                notify.send(
+                    settings.competition_bot_token or settings.telegram_bot_token,
+                    settings.competition_chat_id,
+                    notify.format_heartbeat(result, settings, apps_desc=f"≥ {settings.min_competition}"),
+                )
+                _state["last_hb_high"] = today
+            except Exception as exc:  # noqa: BLE001
+                log.warning("проверка в тему «3+» не ушла: %s", exc)
 
     # БИН-трек: следим за конкретными заказчиками, шлём в отдельный чат при появлении
     # их тендера. Полностью изолирован — свой запрос, свой дедуп, свой try/except:
