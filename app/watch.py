@@ -75,10 +75,11 @@ def _to_lot(row: dict) -> dict:
 def find_new(
     client: GoszakupClient,
     settings: config.Settings,
+    bins: list[str],
     our_codes: set[str] | None = None,
     our_names: set[str] | None = None,
 ) -> list[dict]:
-    """Новые тендеры отслеживаемых заказчиков: активные, сумма >= порога, ещё не слали.
+    """Новые тендеры заказчиков из `bins`: активные, сумма >= порога, ещё не слали.
 
     По одному БИН на запрос (площадка ждёт строку, не массив). Дедуп — по
     notified_bin, отдельно от основного потока.
@@ -90,7 +91,7 @@ def find_new(
     """
     found: list[dict] = []
     seen: set[int] = set()
-    for bin_code in settings.watch_bins:
+    for bin_code in bins or []:
         bin_code = str(bin_code).strip()
         if not bin_code:
             continue

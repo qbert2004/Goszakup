@@ -146,26 +146,36 @@ def run_once() -> dict:
             except Exception as exc:  # noqa: BLE001
                 log.warning("проверка в тему «3+» не ушла: %s", exc)
 
-    # БИН-трек: следим за конкретными заказчиками, шлём в отдельный чат при появлении
-    # их тендера. Полностью изолирован — свой запрос, свой дедуп, свой try/except:
-    # его падение (таймаут площадки и т.п.) не задевает основной скан, который выше
-    # уже отработал и разослал лоты.
+    # БИН-треки — ДВА независимых набора заказчиков, в разные чаты:
+    #   A: watch_bins        -> bin_chat_id        — любой тендер («о наличии»)
+    #   B: watch_bins_enstru -> bin_enstru_chat_id — только профильные (список ЕНСТРУ)
+    # Оба изолированы общим try/except: падение (таймаут площадки) не задевает
+    # основной скан, который выше уже отработал и разослал лоты.
+    groups = []
     if settings.watch_bins and settings.bin_chat_id:
+        groups.append(("all", settings.watch_bins, settings.bin_chat_id))
+    if settings.watch_bins_enstru and settings.bin_enstru_chat_id:
+        groups.append(("enstru", settings.watch_bins_enstru, settings.bin_enstru_chat_id))
+    if groups:
         try:
-            # Ключевые слова = наш список ЕНСТРУ: у этих заказчиков берём только
-            # профильные тендеры. codes уже загружены выше для основного скана;
-            # official_names использует кэш enstru_cache, так что почти бесплатно.
-            our_codes = {item["code"] for item in codes}
+            need_keywords = any(kind == "enstru" for kind, _, _ in groups)
+            our_codes = {item["code"] for item in codes} if need_keywords else None
             with GoszakupClient(settings.goszakup_token) as client:
-                names, _ = monitor.official_names(client, codes)
-                our_names = {n.lower() for n in names}
-                fresh = watch.find_new(client, settings, our_codes, our_names)
-            if fresh:
+                our_names = None
+                if need_keywords:
+                    # official_names берёт из кэша enstru_cache — почти бесплатно.
+                    names, _ = monitor.official_names(client, codes)
+                    our_names = {n.lower() for n in names}
                 token = settings.bin_bot_token or settings.telegram_bot_token
-                notify.send_customer_lots(token, settings.bin_chat_id, fresh)
-                for lot in fresh:
-                    store.mark_notified_bin(lot)
-                log.info("БИН-трек: новых тендеров отправлено: %s", len(fresh))
+                for kind, bins, chat_id in groups:
+                    cc = our_codes if kind == "enstru" else None
+                    nn = our_names if kind == "enstru" else None
+                    fresh = watch.find_new(client, settings, bins, cc, nn)
+                    if fresh:
+                        notify.send_customer_lots(token, chat_id, fresh)
+                        for lot in fresh:
+                            store.mark_notified_bin(lot)
+                        log.info("БИН-трек [%s]: отправлено %s", kind, len(fresh))
         except Exception as exc:  # noqa: BLE001 — трек не должен ронять проход
             log.warning("БИН-трек упал (основной скан не затронут): %s", exc)
 

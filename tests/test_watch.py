@@ -32,7 +32,7 @@ def test_find_new_filters_status_amount_and_dedup():
     ]})
     s = Settings(watch_bins=["111"], bin_min_amount=2_000_000)
     with patch("app.store.already_notified_bin", return_value=False):
-        found = watch.find_new(client, s)
+        found = watch.find_new(client, s, ["111"])
     assert [f["lot_number"] for f in found] == ["A-1"]
     assert found[0]["customer"] == "ТОО Тест"
 
@@ -41,7 +41,7 @@ def test_find_new_skips_already_notified():
     client = FakeClient({"111": [_row(1, "A-1", 5_000_000, 210)]})
     s = Settings(watch_bins=["111"], bin_min_amount=2_000_000)
     with patch("app.store.already_notified_bin", return_value=True):
-        assert watch.find_new(client, s) == []
+        assert watch.find_new(client, s, ["111"]) == []
 
 
 def test_find_new_keyword_filter_code_and_name():
@@ -60,7 +60,7 @@ def test_find_new_keyword_filter_code_and_name():
 
     with patch("app.store.already_notified_bin", return_value=False), \
          patch("app.monitor._enstru_code_of", side_effect=fake_code):
-        found = watch.find_new(client, s, our_codes={"OUR"}, our_names={"тендер"})
+        found = watch.find_new(client, s, ["111"], our_codes={"OUR"}, our_names={"тендер"})
     nums = [f["lot_number"] for f in found]
     assert nums == ["A-1", "A-3"]  # наш код + имя-фолбэк; чужой код отсеян
 
@@ -73,5 +73,5 @@ def test_find_new_dedups_same_lot_across_scan():
     ]})
     s = Settings(watch_bins=["111"], bin_min_amount=2_000_000)
     with patch("app.store.already_notified_bin", return_value=False):
-        found = watch.find_new(client, s)
+        found = watch.find_new(client, s, ["111"])
     assert len(found) == 1
