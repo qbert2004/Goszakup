@@ -44,6 +44,27 @@ def test_find_new_skips_already_notified():
         assert watch.find_new(client, s) == []
 
 
+def test_find_new_keyword_filter_code_and_name():
+    # Фильтр по ключевым словам (список ЕНСТРУ): код решает, имя — запасное.
+    rows = [
+        {**_row(1, "A-1", 5_000_000, 210), "pointList": [10]},  # код наш -> да
+        {**_row(2, "A-2", 5_000_000, 210), "pointList": [20]},  # код чужой -> нет
+        {**_row(3, "A-3", 5_000_000, 210), "pointList": []},    # кода нет -> имя
+    ]
+    client = FakeClient({"111": rows})
+    s = Settings(watch_bins=["111"], bin_min_amount=2_000_000)
+
+    def fake_code(_cl, lot):
+        pl = lot.get("point_list") or []
+        return {10: "OUR", 20: "FOREIGN"}.get(pl[0] if pl else None)
+
+    with patch("app.store.already_notified_bin", return_value=False), \
+         patch("app.monitor._enstru_code_of", side_effect=fake_code):
+        found = watch.find_new(client, s, our_codes={"OUR"}, our_names={"тендер"})
+    nums = [f["lot_number"] for f in found]
+    assert nums == ["A-1", "A-3"]  # наш код + имя-фолбэк; чужой код отсеян
+
+
 def test_find_new_dedups_same_lot_across_scan():
     # один и тот же lot_id не должен уехать дважды за проход
     client = FakeClient({"111": [

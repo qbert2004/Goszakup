@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from . import config, store
+from . import config, monitor, store
 from .goszakup import GoszakupClient, lot_link
 from .window import ASTANA
 
@@ -34,6 +34,7 @@ query ($f: LotsFiltersInput, $limit: Int) {
     amount
     customerNameRu
     trdBuyId
+    pointList
     TrdBuy {
       numberAnno
       endDate
@@ -71,11 +72,21 @@ def _to_lot(row: dict) -> dict:
     }
 
 
-def find_new(client: GoszakupClient, settings: config.Settings) -> list[dict]:
+def find_new(
+    client: GoszakupClient,
+    settings: config.Settings,
+    our_codes: set[str] | None = None,
+    our_names: set[str] | None = None,
+) -> list[dict]:
     """Новые тендеры отслеживаемых заказчиков: активные, сумма >= порога, ещё не слали.
 
     По одному БИН на запрос (площадка ждёт строку, не массив). Дедуп — по
     notified_bin, отдельно от основного потока.
+
+    Если задан our_codes — дополнительно фильтруем по нашему списку ЕНСТРУ
+    («ключевые слова»): проходят только профильные лоты. Критерий тот же, что в
+    основном скане: код ЕНСТРУ решает, точное имя — запасное. our_codes=None —
+    фильтр выключен (слать все тендеры заказчика).
     """
     found: list[dict] = []
     seen: set[int] = set()
@@ -97,8 +108,22 @@ def find_new(client: GoszakupClient, settings: config.Settings) -> list[dict]:
             lot_id = row.get("id")
             if lot_id is None or lot_id in seen:
                 continue
+            # Дедуп — до сверки кода (сверка тянет лишний запрос к Plans).
             if store.already_notified_bin(lot_id):
                 continue
+            # Профильность по списку ЕНСТРУ. Код решает, имя — запасное (как в
+            # основном скане). None -> фильтр выключен, берём любой тендер.
+            if our_codes is not None:
+                code = monitor._enstru_code_of(
+                    client, {"point_list": row.get("pointList") or []}
+                )
+                if code is not None:
+                    if code not in our_codes:
+                        continue
+                else:
+                    name = (row.get("nameRu") or "").strip().lower()
+                    if name not in (our_names or set()):
+                        continue
             seen.add(lot_id)
             found.append(_to_lot(row))
     return found

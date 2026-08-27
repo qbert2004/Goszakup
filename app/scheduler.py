@@ -152,8 +152,14 @@ def run_once() -> dict:
     # уже отработал и разослал лоты.
     if settings.watch_bins and settings.bin_chat_id:
         try:
+            # Ключевые слова = наш список ЕНСТРУ: у этих заказчиков берём только
+            # профильные тендеры. codes уже загружены выше для основного скана;
+            # official_names использует кэш enstru_cache, так что почти бесплатно.
+            our_codes = {item["code"] for item in codes}
             with GoszakupClient(settings.goszakup_token) as client:
-                fresh = watch.find_new(client, settings)
+                names, _ = monitor.official_names(client, codes)
+                our_names = {n.lower() for n in names}
+                fresh = watch.find_new(client, settings, our_codes, our_names)
             if fresh:
                 token = settings.bin_bot_token or settings.telegram_bot_token
                 notify.send_customer_lots(token, settings.bin_chat_id, fresh)
