@@ -51,6 +51,26 @@ def next_run_at(settings: config.Settings, now: datetime | None = None) -> datet
     return now + timedelta(minutes=max(settings.poll_interval_minutes, 5))
 
 
+def _daily_heartbeat(token: str, chat_id: str, text: str) -> None:
+    """Проверка-датчик в конкретный чат не чаще раза в день (по Астане).
+
+    Датчик жизни: если в теме за день не было тендеров, всё равно подаём голос,
+    чтобы молчание означало поломку, а не спокойный день. Троттл — по chat_id,
+    поэтому у каждой темы (0, 3+, БИН-о-наличии, БИН-по-ЕНСТРУ) он свой.
+    """
+    if not chat_id:
+        return
+    today = datetime.now(ASTANA).date().isoformat()
+    key = "hb:" + str(chat_id)
+    if _state.get(key) == today:
+        return
+    try:
+        notify.send(token, chat_id, text)
+        _state[key] = today
+    except Exception as exc:  # noqa: BLE001 — битая тема не должна ронять проход
+        log.warning("проверка в %s не ушла: %s", chat_id, exc)
+
+
 def run_once() -> dict:
     """Один полноценный проход с отправкой в Telegram."""
     settings = config.load_or_die()
@@ -119,32 +139,22 @@ def run_once() -> dict:
     # СУТОЧНЫЙ сигнал, а не сообщение на каждый скан. Поэтому шлём не чаще раза в
     # день (по Астане) на тему, иначе heartbeat спамит при частом опросе.
     if settings.daily_report:
-        today = datetime.now(ASTANA).date().isoformat()
         low = [lot for lot in result.lots if not settings.is_competition(lot.get("applications"))]
         high = [lot for lot in result.lots if settings.is_competition(lot.get("applications"))]
         # Тема "0 заявок" (нижний диапазон) — основной бот/чат.
-        if not low and _state.get("last_hb_low") != today:
-            try:
-                notify.send(
-                    settings.telegram_bot_token,
-                    settings.telegram_chat_id,
-                    notify.format_heartbeat(result, settings, apps_desc=f"≤ {settings.max_applications}"),
-                )
-                _state["last_hb_low"] = today
-            except Exception as exc:  # noqa: BLE001 — битая тема не должна ронять проход
-                log.warning("проверка в тему «0 заявок» не ушла: %s", exc)
+        if not low:
+            _daily_heartbeat(
+                settings.telegram_bot_token,
+                settings.telegram_chat_id,
+                notify.format_heartbeat(result, settings, apps_desc=f"≤ {settings.max_applications}"),
+            )
         # Тема "3+" (верхний диапазон) — только если она настроена.
-        if (settings.min_competition is not None and settings.competition_chat_id
-                and not high and _state.get("last_hb_high") != today):
-            try:
-                notify.send(
-                    settings.competition_bot_token or settings.telegram_bot_token,
-                    settings.competition_chat_id,
-                    notify.format_heartbeat(result, settings, apps_desc=f"≥ {settings.min_competition}"),
-                )
-                _state["last_hb_high"] = today
-            except Exception as exc:  # noqa: BLE001
-                log.warning("проверка в тему «3+» не ушла: %s", exc)
+        if settings.min_competition is not None and settings.competition_chat_id and not high:
+            _daily_heartbeat(
+                settings.competition_bot_token or settings.telegram_bot_token,
+                settings.competition_chat_id,
+                notify.format_heartbeat(result, settings, apps_desc=f"≥ {settings.min_competition}"),
+            )
 
     # БИН-треки — ДВА независимых набора заказчиков, в разные чаты:
     #   A: watch_bins        -> bin_chat_id        — любой тендер («о наличии»)
@@ -176,6 +186,14 @@ def run_once() -> dict:
                         for lot in fresh:
                             store.mark_notified_bin(lot)
                         log.info("БИН-трек [%s]: отправлено %s", kind, len(fresh))
+                    elif settings.daily_report:
+                        # Тендеров не было — подаём голос (датчик жизни), раз в день.
+                        label = "профильных" if kind == "enstru" else "новых"
+                        _daily_heartbeat(
+                            token, chat_id,
+                            f"🟢 <b>Проверка выполнена, {label} тендеров нет</b>\n\n"
+                            "<i>Приходит раз в день. Пропало — мониторинг не работает.</i>",
+                        )
         except Exception as exc:  # noqa: BLE001 — трек не должен ронять проход
             log.warning("БИН-трек упал (основной скан не затронут): %s", exc)
 
