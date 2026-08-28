@@ -319,6 +319,10 @@ def run(
     if persist:
         for lot in sent_lots:
             store.mark_notified(lot)
+            # Лот с 0 заявок — запоминаем, чтобы после дедлайна перепроверить, не
+            # закрылся ли он реально без участников (кандидат на из одного источника).
+            if lot.get("applications") == 0:
+                store.add_zero_pending(lot)
 
     return result
 

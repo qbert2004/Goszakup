@@ -263,6 +263,38 @@ def send_customer_lots(token: str, chat_id: str, lots: list[dict]) -> int:
     return len(urgent_first)
 
 
+def format_closed_zero_digest(lots: list[dict]) -> str:
+    """Список лотов, закрывшихся без единой заявки."""
+    esc = html.escape
+    parts = [
+        "🟡 <b>Закрылись без участников</b> — никто не подал заявку.\n"
+        "<i>Кандидаты на закупку из одного источника по несостоявшимся.</i>\n"
+    ]
+    for lot in lots:
+        amount = lot.get("amount")
+        price = f"{amount:,.0f} ₸".replace(",", " ") if isinstance(amount, (int, float)) else "—"
+        parts.append(
+            f'\n<a href="{esc(str(lot.get("url", "")))}">'
+            f"{esc(str(lot.get('name', '')))}</a>\n"
+            f"Заказчик: {esc(str(lot.get('customer', '—')))}\n"
+            f"Сумма: {price} · Лот: {esc(str(lot.get('lot_number', '—')))}\n"
+        )
+    return "".join(parts)
+
+
+def send_closed_zero_digest(token: str, chat_id: str, lots: list[dict]) -> int:
+    """Суточный дайджест закрывшихся с 0 — пачками, чтобы не упереться в лимит."""
+    if not lots:
+        return 0
+    sent = 0
+    for start in range(0, len(lots), DIGEST_CHUNK):
+        if sent:
+            time.sleep(SEND_PAUSE)
+        send(token, chat_id, format_closed_zero_digest(lots[start:start + DIGEST_CHUNK]))
+        sent += 1
+    return sent
+
+
 def format_lot(lot: dict) -> str:
     """Сообщение об одном лоте. Ссылка на лот — обязательна по ТЗ."""
     esc = html.escape

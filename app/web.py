@@ -61,7 +61,7 @@ async def post_settings(payload: dict) -> JSONResponse:
         "goszakup_token", "telegram_bot_token", "telegram_chat_id",
         "competition_bot_token", "competition_chat_id",
         "watch_bins", "bin_chat_id", "bin_bot_token", "bin_min_amount",
-        "watch_bins_enstru", "bin_enstru_chat_id",
+        "watch_bins_enstru", "bin_enstru_chat_id", "closed_zero_chat_id",
         "sheet_url",
         "window_hours_min", "respect_working_hours", "poll_interval_minutes",
         "max_applications", "min_competition", "min_amount",

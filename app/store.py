@@ -39,6 +39,35 @@ CREATE TABLE IF NOT EXISTS notified_bin (
     notified_at TEXT NOT NULL
 );
 
+-- Лоты, отправленные как "0 заявок": ждём их дедлайна, чтобы перепроверить, не
+-- подали ли заявки в последний момент. Живёт ПОСЛЕ дедлайна (в отличие от notified,
+-- который purge_closed чистит), пока аудит их не проверит.
+CREATE TABLE IF NOT EXISTS zero_pending (
+    lot_id      INTEGER PRIMARY KEY,
+    trd_buy_id  INTEGER,
+    lot_number  TEXT,
+    name        TEXT,
+    customer    TEXT,
+    amount      REAL,
+    end_date    TEXT,
+    url         TEXT,
+    added_at    TEXT NOT NULL
+);
+
+-- Лоты, которые закрылись реально с 0 участников. Копятся здесь, раз в сутки
+-- уходят дайджестом в отдельный чат и очищаются.
+CREATE TABLE IF NOT EXISTS closed_zero (
+    lot_id      INTEGER PRIMARY KEY,
+    trd_buy_id  INTEGER,
+    lot_number  TEXT,
+    name        TEXT,
+    customer    TEXT,
+    amount      REAL,
+    end_date    TEXT,
+    url         TEXT,
+    closed_at   TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS enstru_cache (
     code        TEXT PRIMARY KEY,
     enstru_id   INTEGER,
@@ -159,6 +188,74 @@ def mark_notified(lot: dict) -> None:
                 _now(),
             ),
         )
+
+
+def add_zero_pending(lot: dict) -> None:
+    """Запомнить отправленный «0 заявок» лот для перепроверки после дедлайна."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO zero_pending"
+            " (lot_id, trd_buy_id, lot_number, name, customer, amount, end_date, url, added_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                lot["lot_id"], lot.get("trd_buy_id"), lot.get("lot_number"),
+                lot.get("name"), lot.get("customer"), lot.get("amount"),
+                lot.get("end_date"), lot.get("url"), _now(),
+            ),
+        )
+
+
+def zero_pending_due(now: str) -> list[dict]:
+    """0-лоты, у которых приём уже закрылся (пора перепроверить счётчик)."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM zero_pending WHERE end_date IS NOT NULL AND end_date <= ?",
+            (now,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def remove_zero_pending(lot_id: int) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM zero_pending WHERE lot_id = ?", (lot_id,))
+
+
+def purge_stale_zero_pending(cutoff: str) -> int:
+    """Забыть лоты, чей дедлайн давно прошёл, а счётчик так и не прочитался —
+    чтобы не перепроверять их вечно. Возвращает число забытых."""
+    with connect() as conn:
+        return conn.execute(
+            "DELETE FROM zero_pending WHERE end_date IS NOT NULL AND end_date < ?",
+            (cutoff,),
+        ).rowcount
+
+
+def add_closed_zero(lot: dict) -> None:
+    """Лот закрылся реально с 0 участников — в копилку для суточного дайджеста."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO closed_zero"
+            " (lot_id, trd_buy_id, lot_number, name, customer, amount, end_date, url, closed_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                lot["lot_id"], lot.get("trd_buy_id"), lot.get("lot_number"),
+                lot.get("name"), lot.get("customer"), lot.get("amount"),
+                lot.get("end_date"), lot.get("url"), _now(),
+            ),
+        )
+
+
+def list_closed_zero() -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM closed_zero ORDER BY end_date"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def clear_closed_zero() -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM closed_zero")
 
 
 def cached_enstru(code: str) -> dict | None:

@@ -12,7 +12,7 @@ import logging
 import threading
 from datetime import datetime, timedelta, timezone
 
-from . import config, monitor, notify, sheet, store, watch
+from . import config, monitor, notify, portal, sheet, store, watch
 from .goszakup import GoszakupClient
 from .window import ASTANA
 
@@ -49,6 +49,30 @@ def next_run_at(settings: config.Settings, now: datetime | None = None) -> datet
             return target
 
     return now + timedelta(minutes=max(settings.poll_interval_minutes, 5))
+
+
+# Сколько дней после дедлайна ещё пытаться прочитать счётчик, если страница молчит.
+ZERO_AUDIT_GRACE_DAYS = 7
+
+
+def _audit_zero_closed(settings: config.Settings) -> None:
+    """Перепроверить закрывшиеся 0-лоты: реально ли без участников.
+
+    Лот, отправленный как «0 заявок», мог собрать заявки в последние часы. После
+    дедлайна читаем счётчик со страницы: 0 — в копилку closed_zero, >0 — забываем.
+    None (страница не прочиталась) — оставляем на следующий раз, но не дольше grace.
+    """
+    now = datetime.now(ASTANA)
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = (now - timedelta(days=ZERO_AUDIT_GRACE_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+    store.purge_stale_zero_pending(cutoff)
+    for lot in store.zero_pending_due(now_str):
+        count = portal.application_count(lot["trd_buy_id"])
+        if count is None:
+            continue  # страница молчит — попробуем в следующий раз
+        if count == 0:
+            store.add_closed_zero(lot)
+        store.remove_zero_pending(lot["lot_id"])
 
 
 def _daily_heartbeat(token: str, chat_id: str, text: str) -> None:
@@ -196,6 +220,32 @@ def run_once() -> dict:
                         )
         except Exception as exc:  # noqa: BLE001 — трек не должен ронять проход
             log.warning("БИН-трек упал (основной скан не затронут): %s", exc)
+
+    # Аудит закрывшихся 0-лотов + суточный дайджест «закрылись без участников».
+    # Изолирован: своя перепроверка счётчика, свой троттл, свой try/except.
+    if settings.closed_zero_chat_id:
+        try:
+            _audit_zero_closed(settings)
+            if settings.daily_report:
+                token = settings.bin_bot_token or settings.telegram_bot_token
+                closed = store.list_closed_zero()
+                today = datetime.now(ASTANA).date().isoformat()
+                if closed:
+                    if _state.get("last_closed_zero") != today:
+                        notify.send_closed_zero_digest(
+                            token, settings.closed_zero_chat_id, closed
+                        )
+                        store.clear_closed_zero()
+                        _state["last_closed_zero"] = today
+                        log.info("дайджест «закрылись с 0»: отправлено %s", len(closed))
+                else:
+                    _daily_heartbeat(
+                        token, settings.closed_zero_chat_id,
+                        "🟢 <b>Проверка выполнена</b>\n\nЗа сутки лотов, закрывшихся "
+                        "без участников, нет.\n\n<i>Приходит раз в день.</i>",
+                    )
+        except Exception as exc:  # noqa: BLE001 — не должен ронять проход
+            log.warning("аудит закрытых 0-лотов упал (проход не затронут): %s", exc)
 
     return {
         "matched": result.matched,

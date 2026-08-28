@@ -54,6 +54,11 @@ class Settings:
     watch_bins_enstru: list[str] = field(default_factory=list)
     bin_enstru_chat_id: str = ""
 
+    # Чат для суточного дайджеста «закрылись с 0 участников»: лоты, которые мы слали
+    # как 0 заявок и которые закрылись, так и не собрав ни одной заявки (кандидаты на
+    # закупку из одного источника по несостоявшимся). Пусто — фича выключена.
+    closed_zero_chat_id: str = ""
+
     # Источник списка ЕНСТРУ / ключевых слов
     sheet_url: str = DEFAULT_SHEET_URL
 
