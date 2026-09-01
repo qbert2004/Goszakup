@@ -17,8 +17,13 @@ import re
 
 import httpx
 
-ANNOUNCE_URL = "https://goszakup.gov.kz/ru/announce/index/{id}"
-LOTS_URL = "https://goszakup.gov.kz/ru/announce/index/{id}?tab=lots"
+# 2026-09: goszakup.gov.kz мигрировал на новый SPA zakup.gov.kz, где число заявок
+# доступно только за авторизацией (см. README). Но СТАРАЯ серверная версия жива на
+# old.goszakup.gov.kz — те же страницы, тот же счётчик, для активных лотов, без
+# редиректа. Пока old жив — берём счётчик оттуда (проверено: 200, полная страница,
+# "Кол-во поданных заявок" парсится). Если old закроют — счётчик снова пропадёт.
+ANNOUNCE_URL = "https://old.goszakup.gov.kz/ru/announce/index/{id}"
+LOTS_URL = "https://old.goszakup.gov.kz/ru/announce/index/{id}?tab=lots"
 
 COUNTER_RE = re.compile(r"Кол-во поданных заявок:\s*(\d+)")
 

@@ -7,7 +7,9 @@ import time
 import httpx
 
 GRAPHQL_URL = "https://ows.goszakup.gov.kz/v3/graphql"
-LOT_URL = "https://goszakup.gov.kz/ru/announce/index/{trd_buy_id}?tab=lots"
+# old.goszakup.gov.kz — старая серверная версия ещё жива и открывает лот; новый
+# goszakup.gov.kz редиректит на SPA zakup.gov.kz (там нужен другой id).
+LOT_URL = "https://old.goszakup.gov.kz/ru/announce/index/{trd_buy_id}?tab=lots"
 
 RETRIES = 4
 BACKOFF = 3.0
