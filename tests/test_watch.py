@@ -1,9 +1,16 @@
 """БИН-трек: отбор активных крупных тендеров отслеживаемых заказчиков."""
 
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from app import watch
 from app.config import Settings
+from app.window import ASTANA
+
+# Дедлайн должен быть в будущем, иначе find_new (правильно) отсеет лот как
+# просроченный. Считаем от «сейчас», чтобы тест не протухал со временем.
+FUTURE = (datetime.now(ASTANA) + timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S")
+PAST = "2000-01-01 09:00:00"
 
 
 class FakeClient:
@@ -14,12 +21,12 @@ class FakeClient:
         return {"Lots": self.rows_by_bin.get(variables["f"]["customerBin"], [])}
 
 
-def _row(lot_id, number, amount, status):
+def _row(lot_id, number, amount, status, end_date=FUTURE):
     return {
         "id": lot_id, "lotNumber": number, "nameRu": "Тендер", "amount": amount,
         "customerNameRu": "ТОО Тест", "trdBuyId": 100 + lot_id,
         "TrdBuy": {"numberAnno": str(1000 + lot_id),
-                   "endDate": "2026-09-01 09:00:00", "refBuyStatusId": status},
+                   "endDate": end_date, "refBuyStatusId": status},
     }
 
 
@@ -41,6 +48,16 @@ def test_find_new_skips_already_notified():
     client = FakeClient({"111": [_row(1, "A-1", 5_000_000, 210)]})
     s = Settings(watch_bins=["111"], bin_min_amount=2_000_000)
     with patch("app.store.already_notified_bin", return_value=True):
+        assert watch.find_new(client, s, ["111"]) == []
+
+
+def test_find_new_skips_past_deadline():
+    # Приём закрылся: лот ещё числится активным, но повторно слать его нельзя —
+    # именно на этой дыре (purge_closed вычистил дедуп у истёкшего лота) лот уходил
+    # второй раз с «осталось -0 ч». Просроченный не отправляем даже с чистым дедупом.
+    client = FakeClient({"111": [_row(1, "A-1", 5_000_000, 220, end_date=PAST)]})
+    s = Settings(watch_bins=["111"], bin_min_amount=2_000_000)
+    with patch("app.store.already_notified_bin", return_value=False):
         assert watch.find_new(client, s, ["111"]) == []
 
 

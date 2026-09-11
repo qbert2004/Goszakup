@@ -103,6 +103,14 @@ def find_new(
             buy = row.get("TrdBuy") or {}
             if buy.get("refBuyStatusId") not in ACTIVE_STATUSES:
                 continue
+            # Приём уже закрылся. Два повода пропустить: (1) «новый тендер» с нулевым
+            # или отрицательным остатком времени бесполезен; (2) главное — к моменту
+            # дедлайна purge_closed уже вычищает дедуп-запись (notified_bin чистится
+            # по end_date), а площадка ещё держит лот в активном статусе минуту-другую.
+            # Без этой проверки такой лот уходил ПОВТОРНО (наблюдали «осталось -0 ч»).
+            hours = _hours_left(buy.get("endDate"))
+            if hours is not None and hours <= 0:
+                continue
             amount = row.get("amount")
             if not isinstance(amount, (int, float)) or amount < settings.bin_min_amount:
                 continue
