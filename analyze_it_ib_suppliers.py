@@ -27,7 +27,7 @@ from app.goszakup import GoszakupClient, GoszakupError
 YEAR = "2026"
 YEAR_INT = 2026
 CLIENT_MIN = 20_000_000   # этап 1: закупка ИТ/ИБ дороже этого
-SUPPLY_MIN = 30_000_000   # этап 2: договор не-ИТ/ИБ дороже этого
+SUPPLY_MIN = 20_000_000   # этап 2: договор не-ИТ/ИБ (ТОЛЬКО ТОВАРЫ) дороже этого
 LIMIT = 200
 CAP = 25                  # максимум страниц на один запрос (предохранитель)
 
@@ -120,9 +120,10 @@ def main():
         cf = {"f": {"finYear": fy}, "l": 1}
         sup_name = probe(c, "query($f:ContractFiltersInput,$l:Int){Contract(filter:$f,limit:$l){id Supplier{nameRu}}}", cf)
         con_status = probe(c, "query($f:ContractFiltersInput,$l:Int){Contract(filter:$f,limit:$l){id RefContractStatus{nameRu}}}", cf)
+        subj_type = probe(c, "query($f:ContractFiltersInput,$l:Int){Contract(filter:$f,limit:$l){id RefSubjectType{nameRu}}}", cf)
         con_after = probe(c, "query($f:ContractFiltersInput,$l:Int,$a:Int){Contract(filter:$f,limit:$l,after:$a){id}}", {**cf, "a": 0})
         print(f"[probe] lot_status={lot_status} lot_after={lot_after} finYear={fy!r} "
-              f"sup_name={sup_name} con_status={con_status} con_after={con_after}", file=sys.stderr)
+              f"sup_name={sup_name} con_status={con_status} subj_type={subj_type} con_after={con_after}", file=sys.stderr)
 
         # ========================= ЭТАП 1: КЛИЕНТЫ =========================
         lot_tb = "id numberAnno itogiDatePublic" + (" RefBuyStatus{nameRu}" if lot_status else " refBuyStatusId")
@@ -192,19 +193,28 @@ def main():
         # ========================= ЭТАП 2: ПОСТАВЩИКИ =========================
         con_sup = " Supplier{nameRu}" if sup_name else ""
         con_st = " RefContractStatus{nameRu}" if con_status else ""
+        con_subj = " RefSubjectType{nameRu}" if subj_type else ""
 
         def conq(use_after):
             a1 = ",$a:Int" if use_after else ""
             a2 = ",after:$a" if use_after else ""
             return (f"query($f:ContractFiltersInput,$l:Int{a1}){{Contract(filter:$f,limit:$l{a2})"
                     f"{{id trdBuyId trdBuyNameRu descriptionRu contractSum faktSum supplierBiin supplierFio "
-                    f"customerBin customerFio signDate{con_sup}{con_st}}}}}")
+                    f"customerBin customerFio signDate refSubjectTypeId{con_sup}{con_st}{con_subj}}}}}")
 
         def con_ok(ct):
             if not con_status:
                 return True
             t = ((ct.get("RefContractStatus") or {}).get("nameRu") or "").lower()
             return not any(x in t for x in BAD_STATUS)
+
+        def is_goods(ct):
+            """Только ТОВАРЫ (не работы, не услуги). RefSubjectType.nameRu = Товар/Работа/Услуга;
+            если имени нет — по refSubjectTypeId (1 = товар в справочнике goszakup)."""
+            if subj_type:
+                t = ((ct.get("RefSubjectType") or {}).get("nameRu") or "").lower()
+                return "товар" in t
+            return ct.get("refSubjectTypeId") == 1
 
         supplies = []
         clis = list(clients.items())
@@ -229,6 +239,8 @@ def main():
                         continue
                     subj = ct.get("trdBuyNameRu") or ct.get("descriptionRu") or ""
                     if is_itib(subj):      # нам нужны НЕ ИТ/ИБ
+                        continue
+                    if not is_goods(ct):   # только ТОВАРЫ (без работ и услуг)
                         continue
                     if not con_ok(ct):
                         continue
@@ -280,11 +292,11 @@ def write_outputs(clients: dict, supplies: list, sup_name: bool):
             w.writerow([c["org"], c["bin"], c["n"], f'{c["max"]:.0f}', " | ".join(c["samples"])])
     with open("analyze_supplies_non_it.csv", "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
-        w.writerow(["Поставщик", "БИН поставщика", "Что поставил (предмет)", "Сумма договора",
-                    "Факт сумма", "Кому (заказчик)", "БИН заказчика", "Дата договора", "Ссылка"])
+        w.writerow(["Заказчик (ИТ/ИБ-клиент)", "БИН заказчика", "Что купил (товар)", "Сумма договора",
+                    "Поставщик", "БИН поставщика", "Дата договора", "Ссылка"])
         for r in sorted(supplies, key=lambda x: -x["sum"]):
-            w.writerow([r["sup"], r["sup_bin"], r["subject"], f'{r["sum"]:.0f}',
-                        f'{r["fakt"]:.0f}', r["cust"], r["cust_bin"], r["sign"], r["url"]])
+            w.writerow([r["cust"], r["cust_bin"], r["subject"], f'{r["sum"]:.0f}',
+                        r["sup"], r["sup_bin"], r["sign"], r["url"]])
 
     # --- XLSX ---
     try:
@@ -314,23 +326,26 @@ def write_outputs(clients: dict, supplies: list, sup_name: bool):
             ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{ws.max_row}"
 
         wb = Workbook()
+        # 1) Клиенты ИТ/ИБ — от кого пляшем
         s1 = wb.active
-        s1.title = "Поставщики (свод)"
-        mk(s1, ["Поставщик", "БИН", "Договоров", "Сумма всего, тг", "Кол-во заказчиков", "Что поставлял (примеры)"],
-           [[o["name"], o["bin"], o["n"], o["sum"], len(o["custs"]), "; ".join(list(o["subjects"])[:4])]
-            for o in sup_rows], [45, 15, 11, 18, 15, 60], money=(4,))
-
-        s2 = wb.create_sheet("Поставки не-ИТ")
-        mk(s2, ["Поставщик", "БИН поставщика", "Что поставил (предмет)", "Сумма договора, тг",
-                "Факт, тг", "Кому (заказчик)", "БИН заказчика", "Дата", "Ссылка"],
-           [[r["sup"], r["sup_bin"], r["subject"], r["sum"], r["fakt"], r["cust"], r["cust_bin"], r["sign"], r["url"]]
-            for r in sorted(supplies, key=lambda x: -x["sum"])],
-           [38, 15, 50, 18, 16, 38, 15, 18, 42], money=(4, 5), url=9)
-
-        s3 = wb.create_sheet("Клиенты ИТ-ИБ")
-        mk(s3, ["Заказчик", "БИН", "ИТ/ИБ-закупок >20млн", "Макс сумма, тг", "Примеры"],
+        s1.title = "Клиенты ИТ-ИБ"
+        mk(s1, ["Заказчик (ИТ/ИБ-клиент)", "БИН", "ИТ/ИБ-закупок >20млн", "Макс сумма, тг", "Примеры ИТ/ИБ-закупок"],
            [[c["org"], c["bin"], c["n"], c["max"], " | ".join(c["samples"])] for c in client_rows],
            [50, 15, 13, 18, 70], money=(4,))
+
+        # 2) Их не-ИТ закупки ТОВАРОВ: заказчик -> что купил -> поставщик
+        s2 = wb.create_sheet("Закупки товаров (не-ИТ)")
+        mk(s2, ["Заказчик (ИТ/ИБ-клиент)", "БИН заказчика", "Что купил (товар)", "Сумма, тг",
+                "Поставщик", "БИН поставщика", "Дата", "Ссылка"],
+           [[r["cust"], r["cust_bin"], r["subject"], r["sum"], r["sup"], r["sup_bin"], r["sign"], r["url"]]
+            for r in sorted(supplies, key=lambda x: -x["sum"])],
+           [44, 15, 50, 18, 38, 15, 18, 42], money=(4,), url=8)
+
+        # 3) Свод по поставщикам товаров
+        s3 = wb.create_sheet("Поставщики (свод)")
+        mk(s3, ["Поставщик", "БИН", "Договоров", "Сумма всего, тг", "Кол-во заказчиков", "Что поставлял (примеры)"],
+           [[o["name"], o["bin"], o["n"], o["sum"], len(o["custs"]), "; ".join(list(o["subjects"])[:4])]
+            for o in sup_rows], [45, 15, 11, 18, 15, 60], money=(4,))
 
         wb.save("analyze_it_ib_2026.xlsx")
         print("XLSX: analyze_it_ib_2026.xlsx")
