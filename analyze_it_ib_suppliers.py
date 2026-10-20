@@ -353,7 +353,8 @@ def write_outputs(clients: dict, supplies: list, sup_name: bool):
         print("openpyxl нет — только CSV", file=sys.stderr)
 
     print(f"\nГОТОВО. Клиентов ИТ/ИБ: {len(client_rows)} | "
-          f"строк поставок (не-ИТ, >30млн): {len(supplies)} | поставщиков: {len(sup_rows)}")
+          f"строк поставок (не-ИТ товары, >{SUPPLY_MIN/1e6:.0f}млн): {len(supplies)} | "
+          f"поставщиков: {len(sup_rows)}")
     print("ТОП-15 поставщиков по сумме:")
     for o in sup_rows[:15]:
         nm = (o["name"] or o["bin"])[:48]
