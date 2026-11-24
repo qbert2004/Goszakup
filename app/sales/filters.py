@@ -76,17 +76,30 @@ class FilterConfig:
 
 
 def parse_managers(cells) -> list[dict]:
-    """Разобрать колонку менеджеров. Формат ячейки: ``Имя | @username | telegram_user_id``.
+    """Разобрать колонку менеджеров. Полный формат: ``Имя | @username | telegram_user_id``.
 
-    Недостающие части допустимы. Пустые строки пропускаем.
+    Устойчиво к любому порядку и к сокращённым записям: токен с «@» — username,
+    из одних цифр — user_id, остальное — имя. Так работают и «голый» ``@ivan``,
+    и ``Иван | @ivan | 111``. Хотя бы одно из username/user_id нужно для тега.
     """
     out: list[dict] = []
     for cell in cells:
-        parts = [p.strip() for p in str(cell or "").split("|")]
-        if not parts or not parts[0]:
+        s = str(cell or "").strip()
+        if not s:
             continue
-        name = parts[0]
-        username = parts[1].lstrip("@") if len(parts) > 1 else ""
-        user_id = parts[2] if len(parts) > 2 else ""
-        out.append({"name": name, "username": username, "user_id": user_id})
+        name = username = user_id = ""
+        for part in (p.strip() for p in s.split("|")):
+            if not part:
+                continue
+            if part.startswith("@"):
+                username = part.lstrip("@")
+            elif part.isdigit():
+                user_id = part
+            else:
+                name = part
+        if not (name or username or user_id):
+            continue
+        # Имя для кнопки: явное имя, иначе @username, иначе id.
+        display = name or (f"@{username}" if username else user_id)
+        out.append({"name": display, "username": username, "user_id": user_id})
     return out

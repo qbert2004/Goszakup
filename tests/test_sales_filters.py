@@ -66,3 +66,10 @@ def test_parse_managers_partial():
         {"name": "Только имя", "username": "", "user_id": ""},
         {"name": "Имя", "username": "nick", "user_id": ""},
     ]
+
+
+def test_parse_managers_bare_username_and_any_order():
+    out = parse_managers(["@Swsuga", "111 | @ivan | Иван", "Пётр | 222"])
+    assert out[0] == {"name": "@Swsuga", "username": "Swsuga", "user_id": ""}
+    assert out[1] == {"name": "Иван", "username": "ivan", "user_id": "111"}  # порядок любой
+    assert out[2] == {"name": "Пётр", "username": "", "user_id": "222"}
