@@ -33,20 +33,38 @@ def _topics(s) -> dict:
     }
 
 
-def scan_once(s, tg, wb) -> list[dict]:
-    """Один проход: фильтры -> скан -> рассылка -> напоминания. Возвращает менеджеров."""
+# Пауза между отправками карточек, сек — чтобы не упираться в лимиты Telegram.
+SEND_DELAY = 2.0
+
+
+def _scan(s, wb):
     cfg = wb.read_filters()
-    year = datetime.now().year
     with GoszakupClient(s.goszakup_token) as client:
         terms = scan.build_search_terms(client, cfg)
-        results = scan.scan_lots(client, cfg, year, terms)
-    sent = runner.dispatch(results, tg, wb, s.sales_chat_id, _topics(s))
+        results = scan.scan_lots(client, cfg, datetime.now().year, terms)
+    return cfg, results
+
+
+def scan_once(s, tg, wb) -> list[dict]:
+    """Один проход: фильтры -> скан -> рассылка -> напоминания. Возвращает менеджеров."""
+    cfg, results = _scan(s, wb)
+    sent = runner.dispatch(results, tg, wb, s.sales_chat_id, _topics(s), send_delay=SEND_DELAY)
     rem = runner.send_reminders(tg)
     log.info(
         "скан: new=%s failed=%s repeat=%s | отправлено %s, напоминаний %s",
         len(results["new"]), len(results["failed"]), len(results["repeat"]), sent, rem,
     )
     return cfg.managers
+
+
+def seed_once() -> int:
+    """Посев: пометить текущие совпадения отправленными без рассылки (первый запуск)."""
+    s = config.load()
+    wb = Workbook(s.sheets_key_path, s.sheets_id)
+    _cfg, results = _scan(s, wb)
+    n = runner.seed(results, wb, s.sales_chat_id, _topics(s))
+    log.info("посев: помечено отправленными %s лотов (в Telegram не слали)", n)
+    return n
 
 
 def run() -> None:

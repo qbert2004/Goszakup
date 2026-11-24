@@ -119,6 +119,19 @@ def test_send_reminders(db):
     assert runner.send_reminders(tg) == 0
 
 
+def test_seed_marks_without_sending(db):
+    wb = FakeWB()
+    results = {"new": [_card(10), _card(11)], "failed": [], "repeat": []}
+    n = runner.seed(results, wb, "-100g", {"new": 839})
+    assert n == 2
+    assert store.already_sent(10) and store.already_sent(11)
+    assert len(wb.funnel) == 2            # в Воронку легли
+    # после посева рассылка тех же лотов ничего не шлёт
+    tg = FakeTG()
+    assert runner.dispatch(results, tg, wb, "-100g", {"new": 839}) == 0
+    assert tg.sent == []
+
+
 def test_reminder_skips_unassigned(db):
     tg, wb = FakeTG(), FakeWB()
     soon = (datetime.now(ASTANA) + timedelta(hours=12)).strftime("%Y-%m-%d %H:%M:%S")

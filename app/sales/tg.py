@@ -15,6 +15,8 @@ callback_data у Telegram ограничен 64 байтами, поэтому �
 
 from __future__ import annotations
 
+import time
+
 import httpx
 
 
@@ -80,12 +82,20 @@ class Telegram:
 
     def _call(self, method: str, **params) -> dict:
         params = {k: v for k, v in params.items() if v is not None}
-        r = self._client.post(f"{self._base}/{method}", json=params)
-        r.raise_for_status()
-        payload = r.json()
-        if not payload.get("ok"):
-            raise RuntimeError(f"Telegram {method}: {payload.get('description')}")
-        return payload.get("result")
+        # Telegram при превышении лимита отвечает 429 с parameters.retry_after —
+        # ждём ровно столько и повторяем (до 5 раз), чтобы рассылка не падала.
+        for _ in range(5):
+            r = self._client.post(f"{self._base}/{method}", json=params)
+            if r.status_code == 429:
+                retry_after = (r.json().get("parameters") or {}).get("retry_after", 1)
+                time.sleep(retry_after + 0.5)
+                continue
+            r.raise_for_status()
+            payload = r.json()
+            if not payload.get("ok"):
+                raise RuntimeError(f"Telegram {method}: {payload.get('description')}")
+            return payload.get("result")
+        raise RuntimeError(f"Telegram {method}: лимит 429 не ушёл за 5 попыток")
 
     def send_message(self, chat_id, text, thread_id=None, reply_markup=None, reply_to=None) -> dict:
         return self._call(

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timedelta
 
 from . import cards, sheets, store
@@ -35,10 +36,11 @@ def _render(data: dict, category: str, manager: str, status_db: str) -> str:
     return cards.build_card(d, category)
 
 
-def dispatch(results: dict, tg, workbook, chat_id, topics: dict) -> int:
+def dispatch(results: dict, tg, workbook, chat_id, topics: dict, send_delay: float = 0.0) -> int:
     """Разослать найденные лоты по веткам, записать в память и в «Воронка_Лотов».
 
-    topics: {"new": thread_id, "failed": ..., "repeat": ...}. Возвращает число отправленных.
+    topics: {"new": thread_id, "failed": ..., "repeat": ...}. send_delay — пауза между
+    отправками (сек), чтобы не упираться в лимиты Telegram. Возвращает число отправленных.
     """
     sent = 0
     for category in CATEGORIES:
@@ -59,12 +61,42 @@ def dispatch(results: dict, tg, workbook, chat_id, topics: dict) -> int:
             store.record_card(data, category, chat_id, thread, msg.get("message_id"))
             rows_funnel.append(sheets.funnel_row(data, category, manager="", status="Не назначен"))
             sent += 1
+            if send_delay:
+                time.sleep(send_delay)
         if rows_funnel and workbook is not None:
             try:
                 workbook.append_funnel(rows_funnel)
             except Exception as exc:  # noqa: BLE001
                 log.warning("не записал в Воронку (%s): %s", category, exc)
     return sent
+
+
+def seed(results: dict, workbook, chat_id, topics: dict, to_funnel: bool = True) -> int:
+    """«Посев»: пометить текущие совпадения отправленными БЕЗ рассылки в Telegram.
+
+    Нужен для первого запуска, чтобы не завалить группу бэклогом: после посева в
+    чат идут только НОВЫЕ лоты. Текущие при to_funnel=True кладём в «Воронка_Лотов»
+    (без кнопок) — чтобы команда их всё же видела в таблице.
+    """
+    seeded = 0
+    for category in CATEGORIES:
+        thread = topics.get(category)
+        if not thread:
+            continue
+        rows_funnel = []
+        for data in results.get(category, []):
+            lot_id = data.get("lot_id")
+            if lot_id is None or store.already_sent(lot_id):
+                continue
+            store.record_card(data, category, chat_id, thread, 0)  # message_id=0: не постили
+            rows_funnel.append(sheets.funnel_row(data, category, manager="", status="Не назначен"))
+            seeded += 1
+        if to_funnel and rows_funnel and workbook is not None:
+            try:
+                workbook.append_funnel(rows_funnel)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("посев: не записал в Воронку (%s): %s", category, exc)
+    return seeded
 
 
 def handle_callback(cbq: dict, tg, workbook, managers: list[dict]) -> None:
