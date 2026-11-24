@@ -68,6 +68,16 @@ class Settings:
     sheets_key_path: str = ""
     sheets_id: str = ""
 
+    # Бот отдела продаж — Telegram. Отдельный бот (интерактив через поллинг
+    # getUpdates: поллить токен может только один процесс). Пусто -> выключено.
+    sales_bot_token: str = ""
+    sales_chat_id: str = ""        # id группы, напр. -1004291773772
+    sales_topic_new: str = ""      # thread_id ветки «Новые лоты»
+    sales_topic_failed: str = ""   # «Несостоявшиеся (1-я)»
+    sales_topic_repeat: str = ""   # «Повторные»
+    sales_topic_plans: str = ""    # «Планы»
+    sales_scan_interval_minutes: int = 30
+
     # Минимальный запас до дедлайна, часы. Позже этого срока молчать нельзя —
     # уведомление обязано уйти. ТЗ: "остался ровно 1 день" = 24 часа.
     window_hours_min: int = 24
@@ -156,7 +166,7 @@ class Settings:
         """Версия для отдачи в браузер: секреты не уходят на клиент в открытом виде."""
         data = asdict(self)
         for key in ("goszakup_token", "telegram_bot_token", "competition_bot_token",
-                    "bin_bot_token"):
+                    "bin_bot_token", "sales_bot_token"):
             data[key] = _mask(data[key])
         return data
 
@@ -195,7 +205,7 @@ def update(**changes) -> Settings:
         if value is None:
             continue
         if key in ("goszakup_token", "telegram_bot_token", "competition_bot_token",
-                   "bin_bot_token") and isinstance(value, str) and value.strip() == "":
+                   "bin_bot_token", "sales_bot_token") and isinstance(value, str) and value.strip() == "":
             continue
         setattr(settings, key, value)
     save(settings)
