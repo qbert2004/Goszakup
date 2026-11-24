@@ -1,0 +1,41 @@
+[Unit]
+Description=Бот отдела продаж goszakup (Telegram + Google Sheets)
+Documentation=file:///opt/goszakup-monitor/README.md
+# Сеть нужна с первой секунды: бот сразу идёт на площадку, Telegram и Google.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=goszakup
+Group=goszakup
+WorkingDirectory=/opt/goszakup-monitor
+ExecStart=/opt/goszakup-monitor/.venv/bin/python run_sales.py
+
+# Отдельный процесс со своим bot-токеном: поллинг getUpdates держит один процесс.
+Restart=always
+RestartSec=30
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=goszakup-sales
+Environment=PYTHONUNBUFFERED=1
+
+# Ходит только наружу (goszakup, Telegram, Google) и пишет в свою папку.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# Общая с легаси база monitor.db лежит здесь же; каталог — чтобы SQLite мог писать
+# -journal рядом.
+ReadWritePaths=/opt/goszakup-monitor
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
