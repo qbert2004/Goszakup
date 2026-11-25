@@ -32,6 +32,12 @@ CREATE TABLE IF NOT EXISTS sales_cards (
     data_json  TEXT,          -- полные данные карточки для перерисовки
     sent_at    TEXT NOT NULL
 );
+
+-- Лоты, уже записанные в «База_Сделок» (Модуль 4) — чтобы ночной сбор не дублировал.
+CREATE TABLE IF NOT EXISTS sales_deals (
+    lot_id     INTEGER PRIMARY KEY,
+    written_at TEXT NOT NULL
+);
 """
 
 
@@ -102,3 +108,18 @@ def due_for_reminder(now_str: str, plus24_str: str) -> list[dict]:
 def mark_reminded(lot_id) -> None:
     with connect() as c:
         c.execute("UPDATE sales_cards SET reminded=1 WHERE lot_id=?", (lot_id,))
+
+
+def deal_written(lot_id) -> bool:
+    with connect() as c:
+        return c.execute("SELECT 1 FROM sales_deals WHERE lot_id=?", (lot_id,)).fetchone() is not None
+
+
+def mark_deal(lot_id) -> None:
+    with connect() as c:
+        c.execute("INSERT OR IGNORE INTO sales_deals (lot_id, written_at) VALUES (?, ?)", (lot_id, _now()))
+
+
+def deal_seen_ids() -> set:
+    with connect() as c:
+        return {r[0] for r in c.execute("SELECT lot_id FROM sales_deals").fetchall()}

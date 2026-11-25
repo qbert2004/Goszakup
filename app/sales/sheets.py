@@ -98,6 +98,25 @@ def funnel_row(data: dict, category: str, manager: str = "", status: str = "В �
     ]
 
 
+def deal_row(deal: dict) -> list:
+    """Строка для вкладки «База_Сделок» (Модуль 4)."""
+    marker = f'{deal.get("anno", "")} · лот {deal.get("lot_number", "")}'
+    return [
+        deal.get("itogi", ""),
+        _hyperlink(deal.get("url", ""), marker),
+        deal.get("customer", ""),
+        str(deal.get("customer_bin", "")),
+        deal.get("name", ""),
+        str(deal.get("enstru", "")),
+        deal.get("plan_sum") or 0,
+        deal.get("contract_sum") or 0,
+        deal.get("reduction", ""),
+        deal.get("winner", ""),
+        str(deal.get("winner_bin", "")),
+        deal.get("second", ""),
+    ]
+
+
 def plan_row(point: dict) -> list:
     """Строка для вкладки «Планы_Закупок» из пункта плана (PlnPoint)."""
     from .queries import announce_link  # ссылка на закупку пока через announce id нет — на план

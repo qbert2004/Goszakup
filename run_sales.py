@@ -9,16 +9,20 @@
 import logging
 import sys
 
-from app.sales.loop import run, seed_once
+from app.sales.loop import daily_once, run, seed_once
 
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    if len(sys.argv) > 1 and sys.argv[1] == "seed":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "seed":
         n = seed_once()
         print(f"Посев завершён: {n} лотов помечено отправленными (в Telegram не слали).")
+    elif cmd == "daily":
+        deals, plans = daily_once()
+        print(f"Суточный сбор: сделок +{deals}, планов синхронизировано {plans}.")
     else:
         print("Бот отдела продаж запускается…")
         run()

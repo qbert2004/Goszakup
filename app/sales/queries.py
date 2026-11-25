@@ -76,6 +76,25 @@ query ($f: PlansFiltersInput, $limit: Int, $after: Int) {
 """
 
 
+# Договор по закупке (Модуль 4): победитель, сумма, снижение. Второе место закрыто
+# (TrdApp недоступен токену) — колонка остаётся пустой.
+CONTRACT_BY_BUY = """
+query ($f: ContractFiltersInput, $limit: Int) {
+  Contract(filter: $f, limit: $limit) {
+    id
+    trdBuyId
+    contractSum
+    faktSum
+    supplierBiin
+    supplierFio
+    signDate
+    RefContractStatus { nameRu }
+    Supplier { nameRu }
+  }
+}
+"""
+
+
 def _has_parent(buy: dict) -> bool:
     """Есть ли родительская закупка (признак повторной)."""
     pid = buy.get("parentId")

@@ -162,6 +162,92 @@ def scan_plans(client, cfg, year, search_terms=None) -> list[dict]:
     return out
 
 
+def fetch_contract(client, trd_buy_id) -> dict | None:
+    """Договор по закупке (победитель). Берём первый с поставщиком. None — нет договора."""
+    try:
+        rows = client.query(
+            queries.CONTRACT_BY_BUY, {"f": {"trdBuyId": trd_buy_id}, "limit": 5}
+        ).get("Contract") or []
+    except Exception:  # noqa: BLE001
+        return None
+    for c in rows:
+        if c.get("supplierBiin") or c.get("supplierFio") or (c.get("Supplier") or {}).get("nameRu"):
+            return c
+    return rows[0] if rows else None
+
+
+def build_deal(lot: dict, contract: dict, code: str | None = None) -> dict:
+    """Строка сделки: план/итог/снижение/победитель."""
+    buy = lot.get("TrdBuy") or {}
+    plan = float(lot.get("amount") or 0)
+    csum = float(contract.get("contractSum") or 0)
+    reduction = round((plan - csum) / plan * 100, 2) if (plan > 0 and csum > 0) else ""
+    winner = (contract.get("Supplier") or {}).get("nameRu") or contract.get("supplierFio") or ""
+    return {
+        "lot_id": lot.get("id"),
+        "itogi": buy.get("itogiDatePublic") or contract.get("signDate") or "",
+        "anno": buy.get("numberAnno") or "",
+        "lot_number": lot.get("lotNumber") or "",
+        "url": announce_link(buy.get("id") or lot.get("trdBuyId")),
+        "customer": lot.get("customerNameRu") or "",
+        "customer_bin": lot.get("customerBin") or "",
+        "name": lot.get("nameRu") or "",
+        "enstru": code or "",
+        "plan_sum": plan,
+        "contract_sum": csum,
+        "reduction": reduction,
+        "winner": winner,
+        "winner_bin": str(contract.get("supplierBiin") or ""),
+        "second": "",  # TrdApp закрыт токену — 2-е место недоступно (как в ТЗ)
+    }
+
+
+def scan_deals(client, cfg, year, search_terms=None, code_resolver=None, seen_ids=None) -> list[dict]:
+    """Состоявшиеся профильные закупки года с договором (Модуль 4). seen_ids — дедуп."""
+    terms = search_terms if search_terms is not None else build_search_terms(client, cfg)
+    resolve = code_resolver or default_code_resolver(client)
+    seen_ids = set(seen_ids or [])
+    local: set = set()
+    deals: list[dict] = []
+    for term in terms:
+        after = None
+        pages = 0
+        while pages < CAP:
+            variables = {"f": {"nameDescriptionRu": term}, "limit": PAGE}
+            if after is not None:
+                variables["after"] = after
+            try:
+                lots = client.query(queries.LOTS_QUERY, variables).get("Lots") or []
+            except Exception:  # noqa: BLE001
+                break
+            if not lots:
+                break
+            for lot in lots:
+                lid = lot.get("id")
+                if lid in local or lid in seen_ids:
+                    continue
+                local.add(lid)
+                buy = lot.get("TrdBuy") or {}
+                if (buy.get("itogiDatePublic") or "")[:4] != str(year):
+                    continue
+                status = ((buy.get("RefBuyStatus") or {}).get("nameRu") or "").lower()
+                if "не состоял" in status:
+                    continue
+                codes = resolve(lot)
+                if not cfg.passes(lot.get("nameRu"), codes, lot.get("amount")):
+                    continue
+                contract = fetch_contract(client, buy.get("id"))
+                if not contract:
+                    continue  # нет договора — не считаем состоявшейся сделкой
+                code = next(iter(codes & cfg.enstru), None) or next(iter(codes), None)
+                deals.append(build_deal(lot, contract, code))
+            pages += 1
+            if len(lots) < PAGE:
+                break
+            after = lots[-1].get("id")
+    return deals
+
+
 def plans_by_month(points: list[dict]) -> dict:
     """Сводка планов по месяцам: {refMonthsId: {count, sum, name}}."""
     agg: dict = defaultdict(lambda: {"count": 0, "sum": 0.0, "name": ""})

@@ -14,11 +14,12 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .. import config
 from ..goszakup import GoszakupClient
-from . import runner, scan
+from ..window import ASTANA
+from . import runner, scan, sheets, store
 from .sheets import Workbook
 from .tg import Telegram
 
@@ -67,6 +68,42 @@ def seed_once() -> int:
     return n
 
 
+def daily_once() -> tuple[int, int]:
+    """Суточный сбор (Модуль 4 + 5): сделки в «База_Сделок», синхронизация планов."""
+    s = config.load()
+    wb = Workbook(s.sheets_key_path, s.sheets_id)
+    cfg = wb.read_filters()
+    year = datetime.now().year
+    with GoszakupClient(s.goszakup_token) as client:
+        terms = scan.build_search_terms(client, cfg)
+        deals = scan.scan_deals(client, cfg, year, terms, seen_ids=store.deal_seen_ids())
+        points = scan.scan_plans(client, cfg, year, terms)
+    if deals:
+        wb.append_deals([sheets.deal_row(d) for d in deals])
+        for d in deals:
+            store.mark_deal(d["lot_id"])
+    wb.sync_plans([sheets.plan_row(p) for p in points])
+    log.info("суточный сбор: сделок +%s, планов %s", len(deals), len(points))
+    return len(deals), len(points)
+
+
+def _seconds_until(hour: int, minute: int) -> float:
+    now = datetime.now(ASTANA)
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return (target - now).total_seconds()
+
+
+def _daily_loop() -> None:
+    while True:
+        time.sleep(_seconds_until(2, 0))  # 02:00 по Астане
+        try:
+            daily_once()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("суточный сбор упал: %s", exc)
+
+
 def run() -> None:
     s = config.load()
     missing = [n for n, v in (
@@ -92,6 +129,7 @@ def run() -> None:
             time.sleep(max(config.load().sales_scan_interval_minutes, 5) * 60)
 
     threading.Thread(target=scan_loop, name="sales-scan", daemon=True).start()
+    threading.Thread(target=_daily_loop, name="sales-daily", daemon=True).start()
     log.info("бот продаж запущен, опрос кнопок начат")
 
     offset = None
