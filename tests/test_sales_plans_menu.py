@@ -33,15 +33,17 @@ def test_month_menu_keyboard():
     assert rows[3][2]["text"] == "Декабрь" and rows[3][2]["callback_data"] == "pm:12"
 
 
-def test_save_and_get_plan_months(db):
+def test_save_and_get_plan_months_aggregates_years(db):
     store.save_plan_months(2026, {11: {"count": 5, "sum": 3_000_000, "name": "Ноябрь"}})
-    md = store.get_plan_month(2026, 11)
-    assert md["cnt"] == 5 and md["total"] == 3_000_000 and md["name"] == "Ноябрь"
-    assert store.get_plan_month(2026, 1) is None
-    # перезапись
-    store.save_plan_months(2026, {1: {"count": 2, "sum": 1.0, "name": "Январь"}})
-    assert store.get_plan_month(2026, 11) is None
-    assert store.get_plan_month(2026, 1)["cnt"] == 2
+    assert store.get_plan_month(11)["cnt"] == 5
+    assert store.get_plan_month(1) is None
+    # следующий год суммируется по тому же месяцу
+    store.save_plan_months(2027, {11: {"count": 3, "sum": 1_000_000, "name": "Ноябрь"}})
+    md = store.get_plan_month(11)
+    assert md["cnt"] == 8 and md["total"] == 4_000_000
+    # перезапись только своего года: 2026 очищается, 2027 остаётся
+    store.save_plan_months(2026, {})
+    assert store.get_plan_month(11)["cnt"] == 3
 
 
 def test_meta_kv(db):

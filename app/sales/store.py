@@ -158,13 +158,16 @@ def save_plan_months(year: int, by_month: dict) -> None:
             )
 
 
-def get_plan_month(year: int, month_id: int) -> dict | None:
+def get_plan_month(month_id: int) -> dict | None:
+    """Свод за месяц, агрегированный по всем собранным годам (текущий + следующий)."""
     with connect() as c:
         row = c.execute(
-            "SELECT name, cnt, total FROM sales_plan_months WHERE year=? AND month_id=?",
-            (year, month_id),
+            "SELECT SUM(cnt) AS cnt, SUM(total) AS total FROM sales_plan_months WHERE month_id=?",
+            (month_id,),
         ).fetchone()
-        return dict(row) if row else None
+        if row is None or row["cnt"] is None:
+            return None
+        return {"cnt": row["cnt"], "total": row["total"] or 0.0}
 
 
 def set_meta(k: str, v: str) -> None:

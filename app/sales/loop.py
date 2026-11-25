@@ -75,20 +75,24 @@ def daily_once() -> tuple[int, int]:
     wb = Workbook(s.sheets_key_path, s.sheets_id)
     cfg = wb.read_filters()
     year = datetime.now().year
+    all_points = []
     with GoszakupClient(s.goszakup_token) as client:
         terms = scan.build_search_terms(client, cfg)
         deals = scan.scan_deals(client, cfg, year, terms, seen_ids=store.deal_seen_ids())
-        points = scan.scan_plans(client, cfg, year, terms)
+        # Планы — текущий И следующий год (по ТЗ): к концу года актуальны планы 2027.
+        for yr in (year, year + 1):
+            pts = scan.scan_plans(client, cfg, yr, terms)
+            store.save_plan_months(yr, scan.plans_by_month(pts))  # свод по месяцам за год
+            all_points += pts
     if deals:
         wb.append_deals([sheets.deal_row(d) for d in deals])
         for d in deals:
             store.mark_deal(d["lot_id"])
-    wb.sync_plans([sheets.plan_row(p) for p in points])
-    # Свод по месяцам + ссылка на вкладку — для меню «Планы» в Telegram.
-    store.save_plan_months(year, scan.plans_by_month(points))
+    wb.sync_plans([sheets.plan_row(p) for p in all_points])
     store.set_meta("plans_url", wb.tab_url(sheets.PLANS_TAB))
-    log.info("суточный сбор: сделок +%s, планов %s", len(deals), len(points))
-    return len(deals), len(points)
+    log.info("суточный сбор: сделок +%s, планов %s (годы %s, %s)",
+             len(deals), len(all_points), year, year + 1)
+    return len(deals), len(all_points)
 
 
 def _seconds_until(hour: int, minute: int) -> float:

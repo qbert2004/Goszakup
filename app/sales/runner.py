@@ -108,7 +108,7 @@ def _plans_menu_press(cbq: dict, month_s, tg) -> None:
     chat_id = (msg.get("chat") or {}).get("id")
     message_id = msg.get("message_id")
     month = int(month_s) if (month_s and month_s.isdigit()) else 0
-    md = store.get_plan_month(datetime.now().year, month) or {}
+    md = store.get_plan_month(month) or {}
     name = RU_MONTHS[month - 1] if 1 <= month <= 12 else ""
     url = store.get_meta("plans_url") or ""
     text = cards.plans_menu_text(name, md.get("cnt", 0), md.get("total", 0.0), url)
