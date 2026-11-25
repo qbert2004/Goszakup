@@ -163,6 +163,13 @@ class Workbook:
     def read_filters(self) -> FilterConfig:
         return filter_config_from_values(self._ws(FILTER_TAB).get_all_values())
 
+    def tab_url(self, title: str) -> str:
+        """Ссылка на конкретную вкладку (с gid)."""
+        try:
+            return self._ws(title).url
+        except Exception:  # noqa: BLE001
+            return ""
+
     def append_funnel(self, rows: list[list]) -> None:
         if rows:
             self._ws(FUNNEL_TAB, FUNNEL_HEADERS).append_rows(rows, value_input_option="USER_ENTERED")

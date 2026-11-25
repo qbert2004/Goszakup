@@ -51,6 +51,21 @@ def assign_keyboard(lot_id, managers: list[dict]) -> dict:
     return {"inline_keyboard": rows}
 
 
+RU_MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+             "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+
+
+def month_menu_keyboard() -> dict:
+    """Клавиатура из 12 месяцев (3 в ряд). callback: pm:<month 1..12>."""
+    rows = []
+    for r in range(4):
+        rows.append([
+            {"text": RU_MONTHS[r * 3 + i], "callback_data": f"pm:{r * 3 + i + 1}"}
+            for i in range(3)
+        ])
+    return {"inline_keyboard": rows}
+
+
 def parse_callback(data: str) -> tuple[str, str | None, str | None]:
     """callback_data -> (action, lot_id, extra)."""
     parts = (data or "").split(":")

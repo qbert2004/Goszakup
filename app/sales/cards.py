@@ -43,6 +43,22 @@ def responsible_line(manager: str | None, status: str | None = None) -> str:
     return f"👤 Ответственный: {manager or 'Не назначен'}"
 
 
+def plans_menu_text(selected: str = "", cnt: int = 0, total: float = 0.0, url: str = "") -> str:
+    """Текст закреплённого меню планов (Модуль 5)."""
+    import html as _html
+    lines = ["📅 <b>Утверждённые планы закупок</b>", "", "Выберите месяц ниже:"]
+    if selected:
+        lines += [
+            "",
+            f"<b>{_html.escape(selected)}</b>",
+            f"• Позиций: {cnt}",
+            f"• Общая плановая сумма: {fmt_sum(total)}",
+        ]
+        if url:
+            lines.append(f'\n📊 <a href="{_html.escape(url)}">Открыть полный список в Google Sheets</a>')
+    return "\n".join(lines)
+
+
 def build_card(data: dict, category: str) -> str:
     """Собрать HTML-текст карточки.
 

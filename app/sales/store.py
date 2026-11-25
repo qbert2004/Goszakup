@@ -38,6 +38,22 @@ CREATE TABLE IF NOT EXISTS sales_deals (
     lot_id     INTEGER PRIMARY KEY,
     written_at TEXT NOT NULL
 );
+
+-- Свод планов по месяцам (Модуль 5) — для меню «Планы» в Telegram.
+CREATE TABLE IF NOT EXISTS sales_plan_months (
+    year     INTEGER,
+    month_id INTEGER,
+    name     TEXT,
+    cnt      INTEGER,
+    total    REAL,
+    PRIMARY KEY (year, month_id)
+);
+
+-- Простое ключ-значение (id закреплённого меню планов и т.п.).
+CREATE TABLE IF NOT EXISTS sales_meta (
+    k TEXT PRIMARY KEY,
+    v TEXT
+);
 """
 
 
@@ -123,3 +139,34 @@ def mark_deal(lot_id) -> None:
 def deal_seen_ids() -> set:
     with connect() as c:
         return {r[0] for r in c.execute("SELECT lot_id FROM sales_deals").fetchall()}
+
+
+def save_plan_months(year: int, by_month: dict) -> None:
+    """Перезаписать свод планов по месяцам за год. by_month: {month_id: {count,sum,name}}."""
+    with connect() as c:
+        c.execute("DELETE FROM sales_plan_months WHERE year=?", (year,))
+        for m, info in by_month.items():
+            c.execute(
+                "INSERT INTO sales_plan_months (year, month_id, name, cnt, total) VALUES (?,?,?,?,?)",
+                (year, m, info.get("name") or "", info.get("count", 0), info.get("sum", 0.0)),
+            )
+
+
+def get_plan_month(year: int, month_id: int) -> dict | None:
+    with connect() as c:
+        row = c.execute(
+            "SELECT name, cnt, total FROM sales_plan_months WHERE year=? AND month_id=?",
+            (year, month_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def set_meta(k: str, v: str) -> None:
+    with connect() as c:
+        c.execute("INSERT OR REPLACE INTO sales_meta (k, v) VALUES (?, ?)", (k, str(v)))
+
+
+def get_meta(k: str) -> str | None:
+    with connect() as c:
+        row = c.execute("SELECT v FROM sales_meta WHERE k=?", (k,)).fetchone()
+        return row[0] if row else None

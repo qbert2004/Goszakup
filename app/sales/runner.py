@@ -14,7 +14,9 @@ import time
 from datetime import datetime, timedelta
 
 from . import cards, sheets, store
-from .tg import assign_keyboard, main_keyboard, mention, parse_callback
+from .tg import (
+    RU_MONTHS, assign_keyboard, main_keyboard, mention, month_menu_keyboard, parse_callback,
+)
 from ..window import ASTANA
 
 log = logging.getLogger("sales")
@@ -99,10 +101,33 @@ def seed(results: dict, workbook, chat_id, topics: dict, to_funnel: bool = True)
     return seeded
 
 
+def _plans_menu_press(cbq: dict, month_s, tg) -> None:
+    """Нажата кнопка месяца в меню планов: показать свод по месяцу + ссылку."""
+    cb_id = cbq.get("id")
+    msg = cbq.get("message") or {}
+    chat_id = (msg.get("chat") or {}).get("id")
+    message_id = msg.get("message_id")
+    month = int(month_s) if (month_s and month_s.isdigit()) else 0
+    md = store.get_plan_month(datetime.now().year, month) or {}
+    name = RU_MONTHS[month - 1] if 1 <= month <= 12 else ""
+    url = store.get_meta("plans_url") or ""
+    text = cards.plans_menu_text(name, md.get("cnt", 0), md.get("total", 0.0), url)
+    try:
+        tg.edit_message_text(chat_id, message_id, text, reply_markup=month_menu_keyboard())
+    except Exception as exc:  # noqa: BLE001 — «message is not modified» и т.п. не роняют
+        log.warning("меню планов: %s", exc)
+    tg.answer_callback_query(cb_id)
+
+
 def handle_callback(cbq: dict, tg, workbook, managers: list[dict]) -> None:
     """Обработать нажатие инлайн-кнопки."""
     cb_id = cbq.get("id")
     action, lot_s, extra = parse_callback(cbq.get("data", ""))
+
+    if action == "pm":  # меню планов (Модуль 5), не карточка лота
+        _plans_menu_press(cbq, lot_s, tg)
+        return
+
     card = store.get_card(int(lot_s)) if (lot_s and lot_s.isdigit()) else None
     if not card:
         tg.answer_callback_query(cb_id, "Карточка устарела")
