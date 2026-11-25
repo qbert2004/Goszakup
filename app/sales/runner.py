@@ -181,6 +181,40 @@ def handle_callback(cbq: dict, tg, workbook, managers: list[dict]) -> None:
     tg.answer_callback_query(cb_id, note)
 
 
+def notify_changes(results: dict, tg) -> int:
+    """Reply об изменении сроков по уже отправленным карточкам (Модуль 1).
+
+    Сравниваем новый дедлайн с сохранённым: сдвинулся — отвечаем на исходную карточку
+    (с тегом ответственного, если назначен), новую карточку НЕ создаём.
+    """
+    changed = 0
+    for category in CATEGORIES:
+        for data in results.get(category, []):
+            lot_id = data.get("lot_id")
+            card = store.get_card(lot_id) if lot_id is not None else None
+            if not card or not card.get("message_id"):  # не отправляли (или посев: msg_id=0)
+                continue
+            new_end = data.get("end_date_raw") or ""
+            if new_end and new_end != (card.get("end_date") or ""):
+                manager = card.get("manager") or "—"
+                text = (
+                    "🔄 <b>Изменились сроки приёма заявок</b>\n"
+                    f"Новый дедлайн: {data.get('end_date')}\n"
+                    f"Ответственный: {manager}"
+                )
+                try:
+                    tg.send_message(
+                        card["chat_id"], text,
+                        thread_id=card["thread_id"] or None,
+                        reply_to=card["message_id"],
+                    )
+                    store.update_deadline(lot_id, new_end)
+                    changed += 1
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("reply об изменении срока по %s не ушёл: %s", lot_id, exc)
+    return changed
+
+
 def send_reminders(tg) -> int:
     """Reply-напоминание за 24ч до дедлайна по лотам «В работе». Возвращает число."""
     now = datetime.now(ASTANA)

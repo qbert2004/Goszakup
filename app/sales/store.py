@@ -126,6 +126,12 @@ def mark_reminded(lot_id) -> None:
         c.execute("UPDATE sales_cards SET reminded=1 WHERE lot_id=?", (lot_id,))
 
 
+def update_deadline(lot_id, end_date) -> None:
+    """Обновить дедлайн карточки и сбросить флаг напоминания (сроки сдвинулись)."""
+    with connect() as c:
+        c.execute("UPDATE sales_cards SET end_date=?, reminded=0 WHERE lot_id=?", (end_date, lot_id))
+
+
 def deal_written(lot_id) -> bool:
     with connect() as c:
         return c.execute("SELECT 1 FROM sales_deals WHERE lot_id=?", (lot_id,)).fetchone() is not None

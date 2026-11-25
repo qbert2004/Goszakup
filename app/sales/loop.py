@@ -49,11 +49,12 @@ def _scan(s, wb):
 def scan_once(s, tg, wb) -> list[dict]:
     """Один проход: фильтры -> скан -> рассылка -> напоминания. Возвращает менеджеров."""
     cfg, results = _scan(s, wb)
+    chg = runner.notify_changes(results, tg)  # reply об изменении сроков по старым карточкам
     sent = runner.dispatch(results, tg, wb, s.sales_chat_id, _topics(s), send_delay=SEND_DELAY)
     rem = runner.send_reminders(tg)
     log.info(
-        "скан: new=%s failed=%s repeat=%s | отправлено %s, напоминаний %s",
-        len(results["new"]), len(results["failed"]), len(results["repeat"]), sent, rem,
+        "скан: new=%s failed=%s repeat=%s | отправлено %s, изменений %s, напоминаний %s",
+        len(results["new"]), len(results["failed"]), len(results["repeat"]), sent, chg, rem,
     )
     return cfg.managers
 

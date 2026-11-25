@@ -138,3 +138,21 @@ def test_reminder_skips_unassigned(db):
     runner.dispatch({"new": [_card(9, end_raw=soon)], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
     # статус «Не назначен» -> напоминания быть не должно
     assert runner.send_reminders(tg) == 0
+
+
+def test_notify_changes_on_deadline_shift(db):
+    tg, wb = FakeTG(), FakeWB()
+    runner.dispatch({"new": [_card(20)], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
+    moved = _card(20, end_raw="2026-12-05 18:00:00")
+    moved["end_date"] = "05.12.2026 18:00"
+    assert runner.notify_changes({"new": [moved], "failed": [], "repeat": []}, tg) == 1
+    assert any("Изменились сроки" in s["text"] and s["reply_to"] for s in tg.sent)
+    # повторно — дедлайн уже обновлён, reply не дублируется
+    assert runner.notify_changes({"new": [moved], "failed": [], "repeat": []}, tg) == 0
+
+
+def test_notify_changes_skips_unchanged(db):
+    tg, wb = FakeTG(), FakeWB()
+    c = _card(21)
+    runner.dispatch({"new": [c], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
+    assert runner.notify_changes({"new": [c], "failed": [], "repeat": []}, tg) == 0
