@@ -103,6 +103,17 @@ def _seconds_until(hour: int, minute: int) -> float:
     return (target - now).total_seconds()
 
 
+def _next_scan_delay(s) -> float:
+    """Пауза до следующего скана. Интервал >= суток -> раз в день в sales_scan_at."""
+    if s.sales_scan_interval_minutes >= 1440 and s.sales_scan_at:
+        try:
+            hour, minute = (int(x) for x in s.sales_scan_at.split(":"))
+            return _seconds_until(hour, minute)
+        except (ValueError, TypeError):
+            pass
+    return max(s.sales_scan_interval_minutes, 5) * 60
+
+
 def _daily_loop() -> None:
     try:
         daily_once()  # прогон на старте: планы/сделки появляются сразу, не ждут ночи
@@ -153,7 +164,7 @@ def run() -> None:
                 managers_box["m"] = scan_once(config.load(), tg, wb)
             except Exception as exc:  # noqa: BLE001 — сбой прохода не роняет петлю
                 log.warning("скан упал: %s", exc)
-            time.sleep(max(config.load().sales_scan_interval_minutes, 5) * 60)
+            time.sleep(_next_scan_delay(config.load()))
 
     threading.Thread(target=scan_loop, name="sales-scan", daemon=True).start()
     threading.Thread(target=_daily_loop, name="sales-daily", daemon=True).start()

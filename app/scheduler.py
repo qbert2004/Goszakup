@@ -148,37 +148,41 @@ def run_once() -> dict:
                 )
         return dispatched
 
-    try:
-        result = monitor.run(settings, codes, send=send)
-    except Exception as exc:
-        store.finish_run(run_id, 0, 0, 0, error=str(exc))
-        raise
+    # Тракт ЕНСТРУ (0 заявок / 3+) держится на счётчике заявок, который площадка
+    # закрыла. Выключается флагом enstru_track_enabled — тогда скан и его датчики
+    # не идут, а БИН-треки ниже работают как обычно.
+    if settings.enstru_track_enabled:
+        try:
+            result = monitor.run(settings, codes, send=send)
+        except Exception as exc:
+            store.finish_run(run_id, 0, 0, 0, error=str(exc))
+            raise
 
-    store.finish_run(run_id, result.matched, result.passed, result.notified)
+        store.finish_run(run_id, result.matched, result.passed, result.notified)
 
-    # Датчик жизни по каждой теме: молчание должно означать поломку, а не спокойный
-    # день. Тема получает "проверку" только если в ЕЁ диапазоне ничего не нашлось —
-    # если лоты были, они сами и есть признак жизни.
-    # Сканов может быть много (частый опрос ловит лоты быстрее), но проверка — это
-    # СУТОЧНЫЙ сигнал, а не сообщение на каждый скан. Поэтому шлём не чаще раза в
-    # день (по Астане) на тему, иначе heartbeat спамит при частом опросе.
-    if settings.daily_report:
-        low = [lot for lot in result.lots if not settings.is_competition(lot.get("applications"))]
-        high = [lot for lot in result.lots if settings.is_competition(lot.get("applications"))]
-        # Тема "0 заявок" (нижний диапазон) — основной бот/чат.
-        if not low:
-            _daily_heartbeat(
-                settings.telegram_bot_token,
-                settings.telegram_chat_id,
-                notify.format_heartbeat(result, settings, apps_desc=f"≤ {settings.max_applications}"),
-            )
-        # Тема "3+" (верхний диапазон) — только если она настроена.
-        if settings.min_competition is not None and settings.competition_chat_id and not high:
-            _daily_heartbeat(
-                settings.competition_bot_token or settings.telegram_bot_token,
-                settings.competition_chat_id,
-                notify.format_heartbeat(result, settings, apps_desc=f"≥ {settings.min_competition}"),
-            )
+        # Датчик жизни по каждой теме: молчание должно означать поломку, а не спокойный
+        # день. Тема получает "проверку" только если в ЕЁ диапазоне ничего не нашлось —
+        # если лоты были, они сами и есть признак жизни.
+        if settings.daily_report:
+            low = [lot for lot in result.lots if not settings.is_competition(lot.get("applications"))]
+            high = [lot for lot in result.lots if settings.is_competition(lot.get("applications"))]
+            # Тема "0 заявок" (нижний диапазон) — основной бот/чат.
+            if not low:
+                _daily_heartbeat(
+                    settings.telegram_bot_token,
+                    settings.telegram_chat_id,
+                    notify.format_heartbeat(result, settings, apps_desc=f"≤ {settings.max_applications}"),
+                )
+            # Тема "3+" (верхний диапазон) — только если она настроена.
+            if settings.min_competition is not None and settings.competition_chat_id and not high:
+                _daily_heartbeat(
+                    settings.competition_bot_token or settings.telegram_bot_token,
+                    settings.competition_chat_id,
+                    notify.format_heartbeat(result, settings, apps_desc=f"≥ {settings.min_competition}"),
+                )
+    else:
+        result = monitor.Result()
+        store.finish_run(run_id, 0, 0, 0)
 
     # БИН-треки — ДВА независимых набора заказчиков, в разные чаты:
     #   A: watch_bins        -> bin_chat_id        — любой тендер («о наличии»)
@@ -222,8 +226,8 @@ def run_once() -> dict:
             log.warning("БИН-трек упал (основной скан не затронут): %s", exc)
 
     # Аудит закрывшихся 0-лотов + суточный дайджест «закрылись без участников».
-    # Изолирован: своя перепроверка счётчика, свой троттл, свой try/except.
-    if settings.closed_zero_chat_id:
+    # Тоже держится на счётчике — идёт только при включённом ЕНСТРУ-тракте.
+    if settings.enstru_track_enabled and settings.closed_zero_chat_id:
         try:
             _audit_zero_closed(settings)
             if settings.daily_report:
