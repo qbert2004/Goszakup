@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import html
 
+from .statuses import CLOSED, SKIP
+
 HEADERS = {
     "new": "🆕 НОВЫЙ ЛОТ",
     "failed": "⚠️ НЕ СОСТОЯЛАСЬ (1-я закупка)",
@@ -36,11 +38,14 @@ def fmt_sum(value) -> str:
 
 
 def responsible_line(manager: str | None, status: str | None = None) -> str:
-    """Строка статуса назначения (её бот редактирует при нажатии кнопок)."""
-    if status == "skip":
-        who = f" ({manager})" if manager else ""
-        return f"🚫 Статус: Пропущен{who}"
-    return f"👤 Ответственный: {manager or 'Не назначен'}"
+    """Строка ответственного и статуса (её бот редактирует при нажатии кнопок)."""
+    if not manager:
+        return "👤 Ответственный: Не назначен"
+    if status in (SKIP, "skip"):
+        return f"🚫 Не наш / Скип ({manager})"
+    status = status or "Взят в работу"
+    icon = "🔴" if status in CLOSED else "🟢"
+    return f"👤 {manager} · {icon} {status}"
 
 
 def plans_menu_text(selected: str = "", cnt: int = 0, total: float = 0.0, url: str = "") -> str:

@@ -19,6 +19,8 @@ import time
 
 import httpx
 
+from .statuses import STATUSES
+
 
 # ------------------------------ чистые функции ---------------------------------
 
@@ -28,8 +30,18 @@ def mention(manager: dict) -> str:
     return f"@{u}" if u else (manager or {}).get("name", "")
 
 
-def main_keyboard(lot_id) -> dict:
-    """Основная клавиатура под карточкой."""
+def main_keyboard(lot_id, assigned: bool = False) -> dict:
+    """Клавиатура под карточкой. assigned=True (есть ответственный) -> кнопка «Статус»."""
+    if assigned:
+        return {
+            "inline_keyboard": [
+                [{"text": "📊 Статус ▾", "callback_data": f"ss:{lot_id}"}],
+                [
+                    {"text": "👥 Переназначить ▾", "callback_data": f"a:{lot_id}"},
+                    {"text": "🚫 Не наш / Скип", "callback_data": f"s:{lot_id}"},
+                ],
+            ]
+        }
     return {
         "inline_keyboard": [
             [{"text": "✅ Взять в работу", "callback_data": f"t:{lot_id}"}],
@@ -39,6 +51,16 @@ def main_keyboard(lot_id) -> dict:
             ],
         ]
     }
+
+
+def status_keyboard(lot_id) -> dict:
+    """Меню статусов: кнопка на каждый статус (st:<lot>:<idx>) + «Назад»."""
+    rows = [
+        [{"text": s, "callback_data": f"st:{lot_id}:{i}"}]
+        for i, s in enumerate(STATUSES)
+    ]
+    rows.append([{"text": "◀ Назад", "callback_data": f"b:{lot_id}"}])
+    return {"inline_keyboard": rows}
 
 
 def assign_keyboard(lot_id, managers: list[dict]) -> dict:
@@ -137,6 +159,9 @@ class Telegram:
 
     def answer_callback_query(self, callback_query_id, text=None) -> dict:
         return self._call("answerCallbackQuery", callback_query_id=callback_query_id, text=text)
+
+    def set_my_commands(self, commands: list[dict]) -> dict:
+        return self._call("setMyCommands", commands=commands)
 
     def get_updates(self, offset=None, timeout=25, allowed_updates=None) -> list:
         return self._call(

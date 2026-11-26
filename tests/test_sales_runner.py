@@ -74,10 +74,12 @@ def test_callback_take(db):
     runner.dispatch({"new": [_card(5)], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
     runner.handle_callback({"id": "c", "data": "t:5", "from": {"id": 1, "username": "ivan"}}, tg, wb, [])
     card = store.get_card(5)
-    assert card["status"] == "В работе" and card["manager"] == "@ivan"
-    assert "Ответственный: @ivan" in tg.edits[-1]["text"]
-    assert wb.updates[-1] == (card["marker"], "@ivan", "В работе")
+    assert card["status"] == "Взят в работу" and card["manager"] == "@ivan"
+    assert "@ivan" in tg.edits[-1]["text"] and "Взят в работу" in tg.edits[-1]["text"]
+    assert wb.updates[-1] == (card["marker"], "@ivan", "Взят в работу")
     assert tg.answers[-1] == "Взято в работу"
+    # после взятия — клавиатура со «Статус ▾»
+    assert tg.edits[-1]["kb"]["inline_keyboard"][0][0]["callback_data"] == "ss:5"
 
 
 def test_callback_assign_pick(db):
@@ -97,8 +99,43 @@ def test_callback_skip(db):
     runner.dispatch({"new": [_card(8)], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
     runner.handle_callback({"id": "c", "data": "s:8", "from": {"id": 2, "first_name": "Пётр"}}, tg, wb, [])
     card = store.get_card(8)
-    assert card["status"] == "Скип" and card["manager"] == "Пётр"
-    assert "Пропущен" in tg.edits[-1]["text"]
+    assert card["status"] == "Не наш / Скип" and card["manager"] == "Пётр"
+    assert "Не наш / Скип" in tg.edits[-1]["text"]
+
+
+def test_callback_status_change_by_owner(db):
+    tg, wb = FakeTG(), FakeWB()
+    runner.dispatch({"new": [_card(30)], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
+    runner.handle_callback({"id": "c", "data": "t:30", "from": {"id": 1, "username": "ivan"}}, tg, wb, [])
+    # ответственный меняет статус на «Заявка подана» (индекс 4)
+    runner.handle_callback({"id": "c", "data": "st:30:4", "from": {"id": 1, "username": "ivan"}}, tg, wb, [])
+    card = store.get_card(30)
+    assert card["status"] == "Заявка подана"
+    assert "Заявка подана" in tg.edits[-1]["text"]
+    assert wb.updates[-1] == (card["marker"], "@ivan", "Заявка подана")
+
+
+def test_status_change_denied_for_non_owner(db):
+    tg, wb = FakeTG(), FakeWB()
+    runner.dispatch({"new": [_card(31)], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
+    runner.handle_callback({"id": "c", "data": "t:31", "from": {"id": 1, "username": "ivan"}}, tg, wb, [])
+    before = store.get_card(31)["status"]
+    # чужой пытается сменить статус
+    runner.handle_callback({"id": "c", "data": "st:31:4", "from": {"id": 2, "username": "petr"}}, tg, wb, [])
+    assert store.get_card(31)["status"] == before             # не изменился
+    assert "не ваш лот" in (tg.answers[-1] or "").lower()
+
+
+def test_assignments_text_and_my_command(db):
+    tg, wb = FakeTG(), FakeWB()
+    runner.dispatch({"new": [_card(40), _card(41)], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
+    runner.handle_callback({"id": "c", "data": "t:40", "from": {"id": 1, "username": "ivan"}}, tg, wb, [])
+    runner.handle_callback({"id": "c", "data": "st:40:1", "from": {"id": 1, "username": "ivan"}}, tg, wb, [])
+    txt = runner.assignments_text()
+    assert "@ivan" in txt and "Запрошены цены" in txt and "40-ЗЦП1" in txt
+    # /my только по себе
+    runner.handle_message({"text": "/my", "chat": {"id": -100}, "from": {"id": 1, "username": "ivan"}}, tg)
+    assert any("@ivan" in s["text"] for s in tg.sent)
 
 
 def test_callback_stale_card(db):

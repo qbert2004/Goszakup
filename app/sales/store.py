@@ -102,6 +102,15 @@ def get_card(lot_id) -> dict | None:
         return dict(row) if row else None
 
 
+def assigned_cards() -> list[dict]:
+    """Все карточки с назначенным ответственным (для списков /my, /list)."""
+    with connect() as c:
+        rows = c.execute(
+            "SELECT * FROM sales_cards WHERE manager != '' ORDER BY manager, sent_at"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def set_status(lot_id, manager: str, status: str) -> None:
     with connect() as c:
         c.execute(

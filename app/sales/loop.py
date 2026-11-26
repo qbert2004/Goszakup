@@ -166,6 +166,14 @@ def run() -> None:
                 log.warning("скан упал: %s", exc)
             time.sleep(_next_scan_delay(config.load()))
 
+    try:
+        tg.set_my_commands([
+            {"command": "my", "description": "Мои закреплённые лоты"},
+            {"command": "list", "description": "Все закреплённые лоты"},
+        ])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("не задал команды бота: %s", exc)
+
     threading.Thread(target=scan_loop, name="sales-scan", daemon=True).start()
     threading.Thread(target=_daily_loop, name="sales-daily", daemon=True).start()
     _ensure_plans_menu(tg, s)
@@ -181,10 +189,10 @@ def run() -> None:
             continue
         for u in updates:
             offset = u["update_id"] + 1
-            cbq = u.get("callback_query")
-            if not cbq:
-                continue
             try:
-                runner.handle_callback(cbq, tg, wb, managers_box["m"])
-            except Exception as exc:  # noqa: BLE001 — одно нажатие не роняет петлю
-                log.warning("обработка нажатия упала: %s", exc)
+                if u.get("callback_query"):
+                    runner.handle_callback(u["callback_query"], tg, wb, managers_box["m"])
+                elif u.get("message"):
+                    runner.handle_message(u["message"], tg)
+            except Exception as exc:  # noqa: BLE001 — одно событие не роняет петлю
+                log.warning("обработка обновления упала: %s", exc)

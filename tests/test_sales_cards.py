@@ -45,9 +45,11 @@ def test_failed_card_header():
 
 
 def test_responsible_line_assigned_and_skip():
-    assert responsible_line("@ivan") == "👤 Ответственный: @ivan"
+    assert responsible_line("@ivan") == "👤 @ivan · 🟢 Взят в работу"
+    assert responsible_line("@ivan", "Заявка подана") == "👤 @ivan · 🟢 Заявка подана"
+    assert responsible_line("@ivan", "Тендер проигран") == "👤 @ivan · 🔴 Тендер проигран"
     assert responsible_line(None) == "👤 Ответственный: Не назначен"
-    assert responsible_line("@ivan", status="skip") == "🚫 Статус: Пропущен (@ivan)"
+    assert responsible_line("@ivan", status="skip") == "🚫 Не наш / Скип (@ivan)"
 
 
 def test_card_escapes_html_in_customer():

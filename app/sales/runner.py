@@ -14,8 +14,10 @@ import time
 from datetime import datetime, timedelta
 
 from . import cards, sheets, store
+from .statuses import FIRST, SKIP, STATUSES
 from .tg import (
-    RU_MONTHS, assign_keyboard, main_keyboard, mention, month_menu_keyboard, parse_callback,
+    RU_MONTHS, assign_keyboard, main_keyboard, mention, month_menu_keyboard,
+    parse_callback, status_keyboard,
 )
 from ..window import ASTANA
 
@@ -34,8 +36,13 @@ def _render(data: dict, category: str, manager: str, status_db: str) -> str:
     """Перерисовать карточку с текущим ответственным/статусом."""
     d = dict(data)
     d["manager"] = manager
-    d["status"] = "skip" if status_db == "Скип" else None
+    d["status"] = status_db
     return cards.build_card(d, category)
+
+
+def _assigned(card: dict) -> bool:
+    """Назначен ли ответственный (и это не отказ)."""
+    return bool(card.get("manager")) and card.get("status") != SKIP
 
 
 def dispatch(results: dict, tg, workbook, chat_id, topics: dict, send_delay: float = 0.0) -> int:
@@ -135,34 +142,50 @@ def handle_callback(cbq: dict, tg, workbook, managers: list[dict]) -> None:
     lot_id = card["lot_id"]
     category = card["category"]
     data = json.loads(card.get("data_json") or "{}")
+    presser = _mention_user(cbq.get("from", {}))
+    owns = (not card.get("manager")) or presser == card["manager"]
 
-    # Меню «Назначить» / «Назад» — только меняем клавиатуру.
-    if action == "a":
-        tg.edit_message_text(
-            card["chat_id"], card["message_id"],
-            _render(data, category, card["manager"], card["status"]),
-            reply_markup=assign_keyboard(lot_id, managers),
-        )
+    # Навигация по клавиатурам (без изменения состояния).
+    if action == "a":  # меню «Назначить/Переназначить»
+        tg.edit_message_text(card["chat_id"], card["message_id"],
+                             _render(data, category, card["manager"], card["status"]),
+                             reply_markup=assign_keyboard(lot_id, managers))
         tg.answer_callback_query(cb_id)
         return
-    if action == "b":
-        tg.edit_message_text(
-            card["chat_id"], card["message_id"],
-            _render(data, category, card["manager"], card["status"]),
-            reply_markup=main_keyboard(lot_id),
-        )
+    if action == "ss":  # меню статусов — только ответственный
+        if not owns:
+            tg.answer_callback_query(cb_id, "Это не ваш лот — статус меняет ответственный")
+            return
+        tg.edit_message_text(card["chat_id"], card["message_id"],
+                             _render(data, category, card["manager"], card["status"]),
+                             reply_markup=status_keyboard(lot_id))
+        tg.answer_callback_query(cb_id)
+        return
+    if action == "b":  # назад к основной клавиатуре
+        tg.edit_message_text(card["chat_id"], card["message_id"],
+                             _render(data, category, card["manager"], card["status"]),
+                             reply_markup=main_keyboard(lot_id, assigned=_assigned(card)))
         tg.answer_callback_query(cb_id)
         return
 
-    # Смена ответственного: take / pick / skip.
+    # Изменение состояния: take / pick / skip / смена статуса.
     if action == "t":
-        manager, status_db, note = _mention_user(cbq.get("from", {})), "В работе", "Взято в работу"
+        manager, status_db, note = presser, FIRST, "Взято в работу"
     elif action == "p":
         idx = int(extra) if (extra and extra.isdigit()) else -1
         m = managers[idx] if 0 <= idx < len(managers) else None
-        manager, status_db, note = (mention(m) if m else ""), "В работе", "Назначено"
+        manager, status_db, note = (mention(m) if m else ""), FIRST, "Назначено"
     elif action == "s":
-        manager, status_db, note = _mention_user(cbq.get("from", {})), "Скип", "Пропущено"
+        manager, status_db, note = (card.get("manager") or presser), SKIP, "Не наш / Скип"
+    elif action == "st":  # смена статуса — только ответственный
+        if not owns:
+            tg.answer_callback_query(cb_id, "Это не ваш лот — статус меняет ответственный")
+            return
+        idx = int(extra) if (extra and extra.isdigit()) else -1
+        if not (0 <= idx < len(STATUSES)):
+            tg.answer_callback_query(cb_id)
+            return
+        manager, status_db, note = (card.get("manager") or presser), STATUSES[idx], STATUSES[idx]
     else:
         tg.answer_callback_query(cb_id)
         return
@@ -171,7 +194,7 @@ def handle_callback(cbq: dict, tg, workbook, managers: list[dict]) -> None:
     tg.edit_message_text(
         card["chat_id"], card["message_id"],
         _render(data, category, manager, status_db),
-        reply_markup=main_keyboard(lot_id),
+        reply_markup=main_keyboard(lot_id, assigned=(status_db != SKIP)),
     )
     if workbook is not None:
         try:
@@ -213,6 +236,56 @@ def notify_changes(results: dict, tg) -> int:
                 except Exception as exc:  # noqa: BLE001
                     log.warning("reply об изменении срока по %s не ушёл: %s", lot_id, exc)
     return changed
+
+
+def _card_link(card: dict) -> str:
+    try:
+        data = json.loads(card.get("data_json") or "{}")
+    except Exception:  # noqa: BLE001
+        data = {}
+    url = data.get("url") or ""
+    label = data.get("lot_number") or card.get("marker") or str(card.get("lot_id"))
+    return f'<a href="{url}">{label}</a>' if url else label
+
+
+def assignments_text(only_manager: str | None = None) -> str:
+    """Компактный список закреплённых лотов (номер-ссылка + статус), по менеджерам."""
+    from collections import OrderedDict
+    groups: OrderedDict = OrderedDict()
+    for card in store.assigned_cards():
+        mgr = card.get("manager") or "—"
+        if only_manager and mgr != only_manager:
+            continue
+        groups.setdefault(mgr, []).append(card)
+    if not groups:
+        return ""
+    lines = ["📋 <b>Закреплённые лоты</b>"]
+    for mgr, items in groups.items():
+        lines.append(f"\n<b>{mgr}</b> ({len(items)}):")
+        for card in items:
+            lines.append(f"• {_card_link(card)} — {card.get('status') or '—'}")
+    text = "\n".join(lines)
+    return text if len(text) <= 3900 else text[:3900] + "\n…(обрезано)"
+
+
+def handle_message(msg: dict, tg) -> None:
+    """Текстовые команды: /my — мои лоты, /list — все."""
+    text = (msg.get("text") or "").strip()
+    if not text.startswith("/"):
+        return
+    cmd = text.split()[0].split("@")[0].lower()
+    chat_id = (msg.get("chat") or {}).get("id")
+    thread = msg.get("message_thread_id")
+    if cmd in ("/my", "/мои"):
+        who = _mention_user(msg.get("from", {}))
+        tg.send_message(chat_id, assignments_text(who) or "У вас нет закреплённых лотов.",
+                        thread_id=thread)
+    elif cmd in ("/list", "/lots", "/all", "/все"):
+        tg.send_message(chat_id, assignments_text() or "Закреплённых лотов нет.", thread_id=thread)
+    elif cmd in ("/help", "/start"):
+        tg.send_message(chat_id,
+                        "Команды:\n/my — мои закреплённые лоты\n/list — все закреплённые лоты",
+                        thread_id=thread)
 
 
 def send_reminders(tg) -> int:
