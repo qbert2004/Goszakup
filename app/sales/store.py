@@ -12,10 +12,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from ..store import DB_PATH  # та же база, что у легаси-мониторинга
 from .statuses import CLOSED, SKIP
+
+ASTANA = timezone(timedelta(hours=5))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sales_cards (
@@ -29,6 +31,7 @@ CREATE TABLE IF NOT EXISTS sales_cards (
     end_date   TEXT,         -- дедлайн приёма (формат площадки) для напоминания
     manager    TEXT DEFAULT '',
     status     TEXT DEFAULT 'Не назначен',
+    status_at  TEXT,          -- когда статус менялся (для «терминальный виден 24ч»)
     reminded   INTEGER DEFAULT 0,
     data_json  TEXT,          -- полные данные карточки для перерисовки
     sent_at    TEXT NOT NULL
@@ -62,12 +65,21 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _now_astana() -> str:
+    return datetime.now(ASTANA).strftime("%Y-%m-%d %H:%M:%S")
+
+
 @contextmanager
 def connect():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(SCHEMA)
+        # Миграция для уже существующих баз: добавить status_at, если его нет.
+        try:
+            conn.execute("ALTER TABLE sales_cards ADD COLUMN status_at TEXT")
+        except sqlite3.OperationalError:
+            pass  # колонка уже есть
         yield conn
         conn.commit()
     finally:
@@ -85,14 +97,15 @@ def record_card(card: dict, category: str, chat_id, thread_id, message_id: int) 
         c.execute(
             "INSERT OR REPLACE INTO sales_cards"
             " (lot_id, category, chat_id, thread_id, message_id, marker, name, end_date,"
-            "  manager, status, reminded, data_json, sent_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "  manager, status, status_at, reminded, data_json, sent_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 card.get("lot_id"), category, str(chat_id), str(thread_id) if thread_id else "",
                 message_id,
                 f'{card.get("anno", "")} · лот {card.get("lot_number", "")}',
                 card.get("name"), card.get("end_date_raw"),
-                "", "Не назначен", 0, json.dumps(card, ensure_ascii=False), _now(),
+                "", "Не назначен", _now_astana(), 0,
+                json.dumps(card, ensure_ascii=False), _now(),
             ),
         )
 
@@ -104,20 +117,29 @@ def get_card(lot_id) -> dict | None:
 
 
 def assigned_cards(include_closed: bool = False) -> list[dict]:
-    """Карточки с ответственным (для /my, /list). По умолчанию только активные —
-    без «Скип» и закрывающих статусов (проект занят / не маржа / проигран)."""
+    """Карточки с ответственным для /my, /list.
+
+    По умолчанию — только «живые»: приём ещё идёт (end_date в будущем) И статус не
+    терминальный ИЛИ терминальный, но сменён меньше суток назад (Скип/проигран/занят/
+    не маржа видны ещё 24 часа, потом выпадают). include_closed=True — вообще все.
+    """
+    now = datetime.now(ASTANA)
+    now_s = now.strftime("%Y-%m-%d %H:%M:%S")
+    cutoff24 = (now - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    terminal = [SKIP, *sorted(CLOSED)]
     with connect() as c:
         if include_closed:
             rows = c.execute(
                 "SELECT * FROM sales_cards WHERE manager != '' ORDER BY manager, sent_at"
             ).fetchall()
         else:
-            closed = [SKIP, *sorted(CLOSED)]
-            ph = ",".join("?" * len(closed))
+            ph = ",".join("?" * len(terminal))
             rows = c.execute(
-                f"SELECT * FROM sales_cards WHERE manager != '' AND status NOT IN ({ph})"
-                " ORDER BY manager, sent_at",
-                closed,
+                "SELECT * FROM sales_cards WHERE manager != '' "
+                "AND (end_date IS NULL OR end_date > ?) "          # жив по дедлайну
+                f"AND (status NOT IN ({ph}) OR status_at > ?) "    # терминальный — ещё 24ч
+                "ORDER BY manager, sent_at",
+                [now_s, *terminal, cutoff24],
             ).fetchall()
         return [dict(r) for r in rows]
 
@@ -133,8 +155,8 @@ def purge_old_cards(cutoff: str) -> int:
 def set_status(lot_id, manager: str, status: str) -> None:
     with connect() as c:
         c.execute(
-            "UPDATE sales_cards SET manager=?, status=? WHERE lot_id=?",
-            (manager, status, lot_id),
+            "UPDATE sales_cards SET manager=?, status=?, status_at=? WHERE lot_id=?",
+            (manager, status, _now_astana(), lot_id),
         )
 
 

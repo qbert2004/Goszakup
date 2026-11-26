@@ -43,7 +43,10 @@ class FakeWB:
         return True
 
 
-def _card(lot_id, name="Сервер", end_raw="2026-12-01 09:00:00"):
+FUTURE = (datetime.now(ASTANA) + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _card(lot_id, name="Сервер", end_raw=FUTURE):
     return {
         "lot_id": lot_id, "trd_buy_id": 1000 + lot_id, "url": "http://x",
         "anno": str(1000 + lot_id), "lot_number": f"{lot_id}-ЗЦП1", "customer": "ТОО",
@@ -138,14 +141,29 @@ def test_assignments_text_and_my_command(db):
     assert any("@ivan" in s["text"] for s in tg.sent)
 
 
-def test_assignments_excludes_closed(db):
+def test_assignments_live_and_terminal_grace(db):
     tg, wb = FakeTG(), FakeWB()
-    runner.dispatch({"new": [_card(50), _card(51)], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
-    runner.handle_callback({"id": "c", "data": "t:50", "from": {"username": "ivan"}}, tg, wb, [])  # В работе
-    runner.handle_callback({"id": "c", "data": "s:51", "from": {"username": "ivan"}}, tg, wb, [])   # Скип
+    runner.dispatch(
+        {"new": [_card(50), _card(51), _card(52, end_raw="2000-01-01 09:00:00")], "failed": [], "repeat": []},
+        tg, wb, "-100g", {"new": 839})
+    runner.handle_callback({"id": "c", "data": "t:50", "from": {"username": "ivan"}}, tg, wb, [])  # живой, в работе
+    runner.handle_callback({"id": "c", "data": "s:51", "from": {"username": "ivan"}}, tg, wb, [])   # свежий скип
+    runner.handle_callback({"id": "c", "data": "t:52", "from": {"username": "ivan"}}, tg, wb, [])    # дедлайн прошёл
     txt = runner.assignments_text()
-    assert "50-ЗЦП1" in txt and "51-ЗЦП1" not in txt       # закрытый выпал
-    assert any(c["lot_id"] == 51 for c in store.assigned_cards(include_closed=True))
+    assert "50-ЗЦП1" in txt        # живой в работе — виден
+    assert "51-ЗЦП1" in txt        # свежий скип — 24ч грейс, виден
+    assert "52-ЗЦП1" not in txt    # мёртв по дедлайну — выпал
+    assert any(c["lot_id"] == 52 for c in store.assigned_cards(include_closed=True))
+
+
+def test_terminal_hidden_after_24h(db):
+    tg, wb = FakeTG(), FakeWB()
+    runner.dispatch({"new": [_card(53)], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
+    runner.handle_callback({"id": "c", "data": "s:53", "from": {"username": "ivan"}}, tg, wb, [])
+    old = (datetime.now(ASTANA) - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
+    with store.connect() as c:
+        c.execute("UPDATE sales_cards SET status_at=? WHERE lot_id=53", (old,))
+    assert all(x["lot_id"] != 53 for x in store.assigned_cards())  # скип старше суток — выпал
 
 
 def test_purge_old_cards(db):
