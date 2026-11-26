@@ -159,7 +159,14 @@ def run() -> None:
     managers_box = {"m": []}
 
     def scan_loop():
+        first = True
         while True:
+            s0 = config.load()
+            # В суточном режиме НЕ сканируем на старте — ждём ближайших sales_scan_at,
+            # чтобы карточки шли строго раз в день в заданное время (а не при рестарте).
+            if first and s0.sales_scan_interval_minutes >= 1440:
+                time.sleep(_next_scan_delay(s0))
+            first = False
             try:
                 managers_box["m"] = scan_once(config.load(), tg, wb)
             except Exception as exc:  # noqa: BLE001 — сбой прохода не роняет петлю
