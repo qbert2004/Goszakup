@@ -138,6 +138,24 @@ def test_assignments_text_and_my_command(db):
     assert any("@ivan" in s["text"] for s in tg.sent)
 
 
+def test_assignments_excludes_closed(db):
+    tg, wb = FakeTG(), FakeWB()
+    runner.dispatch({"new": [_card(50), _card(51)], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
+    runner.handle_callback({"id": "c", "data": "t:50", "from": {"username": "ivan"}}, tg, wb, [])  # В работе
+    runner.handle_callback({"id": "c", "data": "s:51", "from": {"username": "ivan"}}, tg, wb, [])   # Скип
+    txt = runner.assignments_text()
+    assert "50-ЗЦП1" in txt and "51-ЗЦП1" not in txt       # закрытый выпал
+    assert any(c["lot_id"] == 51 for c in store.assigned_cards(include_closed=True))
+
+
+def test_purge_old_cards(db):
+    tg, wb = FakeTG(), FakeWB()
+    runner.dispatch({"new": [_card(60, end_raw="2000-01-01 09:00:00")], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
+    assert store.already_sent(60)
+    assert store.purge_old_cards("2020-01-01 00:00:00") == 1
+    assert not store.already_sent(60)
+
+
 def test_callback_stale_card(db):
     tg, wb = FakeTG(), FakeWB()
     runner.handle_callback({"id": "c", "data": "t:999", "from": {}}, tg, wb, [])

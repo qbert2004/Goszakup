@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from ..store import DB_PATH  # та же база, что у легаси-мониторинга
+from .statuses import CLOSED, SKIP
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sales_cards (
@@ -102,13 +103,31 @@ def get_card(lot_id) -> dict | None:
         return dict(row) if row else None
 
 
-def assigned_cards() -> list[dict]:
-    """Все карточки с назначенным ответственным (для списков /my, /list)."""
+def assigned_cards(include_closed: bool = False) -> list[dict]:
+    """Карточки с ответственным (для /my, /list). По умолчанию только активные —
+    без «Скип» и закрывающих статусов (проект занят / не маржа / проигран)."""
     with connect() as c:
-        rows = c.execute(
-            "SELECT * FROM sales_cards WHERE manager != '' ORDER BY manager, sent_at"
-        ).fetchall()
+        if include_closed:
+            rows = c.execute(
+                "SELECT * FROM sales_cards WHERE manager != '' ORDER BY manager, sent_at"
+            ).fetchall()
+        else:
+            closed = [SKIP, *sorted(CLOSED)]
+            ph = ",".join("?" * len(closed))
+            rows = c.execute(
+                f"SELECT * FROM sales_cards WHERE manager != '' AND status NOT IN ({ph})"
+                " ORDER BY manager, sent_at",
+                closed,
+            ).fetchall()
         return [dict(r) for r in rows]
+
+
+def purge_old_cards(cutoff: str) -> int:
+    """Удалить карточки, чей приём закончился раньше cutoff (формат площадки). Возвращает число."""
+    with connect() as c:
+        return c.execute(
+            "DELETE FROM sales_cards WHERE end_date IS NOT NULL AND end_date < ?", (cutoff,)
+        ).rowcount
 
 
 def set_status(lot_id, manager: str, status: str) -> None:

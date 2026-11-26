@@ -90,8 +90,12 @@ def daily_once() -> tuple[int, int]:
             store.mark_deal(d["lot_id"])
     wb.sync_plans([sheets.plan_row(p) for p in all_points])
     store.set_meta("plans_url", wb.tab_url(sheets.PLANS_TAB))
-    log.info("суточный сбор: сделок +%s, планов %s (годы %s, %s)",
-             len(deals), len(all_points), year, year + 1)
+    # Чистка: карточки, чей приём закончился >30 дней назад — чтобы база и списки
+    # не росли бесконечно (на диске, не в ОЗУ, но порядок есть порядок).
+    cutoff = (datetime.now(ASTANA) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+    purged = store.purge_old_cards(cutoff)
+    log.info("суточный сбор: сделок +%s, планов %s (годы %s, %s), вычищено карточек %s",
+             len(deals), len(all_points), year, year + 1, purged)
     return len(deals), len(all_points)
 
 
