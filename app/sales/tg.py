@@ -53,6 +53,17 @@ def main_keyboard(lot_id, assigned: bool = False) -> dict:
     }
 
 
+def menu_keyboard() -> dict:
+    """Меню бота: мои лоты / все ответственные / без ответственного."""
+    return {
+        "inline_keyboard": [
+            [{"text": "📋 Мои лоты", "callback_data": "mn:mine"}],
+            [{"text": "👥 Все ответственные", "callback_data": "mn:all"}],
+            [{"text": "🆓 Лоты без ответственного", "callback_data": "mn:free"}],
+        ]
+    }
+
+
 def status_keyboard(lot_id) -> dict:
     """Меню статусов: кнопка на каждый статус (st:<lot>:<idx>) + «Назад»."""
     rows = [

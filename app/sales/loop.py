@@ -179,8 +179,10 @@ def run() -> None:
 
     try:
         tg.set_my_commands([
+            {"command": "menu", "description": "Меню: мои / все / без ответственного"},
             {"command": "my", "description": "Мои закреплённые лоты"},
             {"command": "list", "description": "Все закреплённые лоты"},
+            {"command": "free", "description": "Лоты без ответственного"},
         ])
     except Exception as exc:  # noqa: BLE001
         log.warning("не задал команды бота: %s", exc)

@@ -166,6 +166,27 @@ def test_terminal_hidden_after_24h(db):
     assert all(x["lot_id"] != 53 for x in store.assigned_cards())  # скип старше суток — выпал
 
 
+def test_menu_free_and_my(db):
+    tg, wb = FakeTG(), FakeWB()
+    runner.dispatch({"new": [_card(60), _card(61)], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})
+    runner.handle_callback({"id": "c", "data": "t:60", "from": {"username": "ivan"}}, tg, wb, [])  # 60 -> @ivan
+    # store: 61 без ответственного, 60 — с
+    free = store.unassigned_cards()
+    assert any(c["lot_id"] == 61 for c in free) and all(c["lot_id"] != 60 for c in free)
+    # кнопка меню «Без ответственного»
+    cbq = {"id": "m", "data": "mn:free", "message": {"chat": {"id": -100}, "message_id": 7}, "from": {"username": "x"}}
+    runner.handle_callback(cbq, tg, wb, [])
+    assert "61-ЗЦП1" in tg.edits[-1]["text"] and "60-ЗЦП1" not in tg.edits[-1]["text"]
+    assert tg.edits[-1]["kb"]["inline_keyboard"][0][0]["callback_data"] == "mn:mine"  # меню на месте
+    # кнопка «Мои лоты» для @ivan
+    cbq2 = {"id": "m2", "data": "mn:mine", "message": {"chat": {"id": -100}, "message_id": 7}, "from": {"username": "ivan"}}
+    runner.handle_callback(cbq2, tg, wb, [])
+    assert "60-ЗЦП1" in tg.edits[-1]["text"]
+    # /menu шлёт клавиатуру
+    runner.handle_message({"text": "/menu", "chat": {"id": -100}, "from": {"username": "ivan"}}, tg)
+    assert tg.sent[-1]["kb"]["inline_keyboard"][0][0]["callback_data"] == "mn:mine"
+
+
 def test_purge_old_cards(db):
     tg, wb = FakeTG(), FakeWB()
     runner.dispatch({"new": [_card(60, end_raw="2000-01-01 09:00:00")], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})

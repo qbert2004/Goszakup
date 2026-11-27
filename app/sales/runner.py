@@ -16,8 +16,8 @@ from datetime import datetime, timedelta
 from . import cards, sheets, store
 from .statuses import FIRST, SKIP, STATUSES
 from .tg import (
-    RU_MONTHS, assign_keyboard, main_keyboard, mention, month_menu_keyboard,
-    parse_callback, status_keyboard,
+    RU_MONTHS, assign_keyboard, main_keyboard, mention, menu_keyboard,
+    month_menu_keyboard, parse_callback, status_keyboard,
 )
 from ..window import ASTANA
 
@@ -133,6 +133,9 @@ def handle_callback(cbq: dict, tg, workbook, managers: list[dict]) -> None:
 
     if action == "pm":  # меню планов (Модуль 5), не карточка лота
         _plans_menu_press(cbq, lot_s, tg)
+        return
+    if action == "mn":  # меню бота (мои / все / без ответственного)
+        _menu_press(cbq, lot_s, tg)
         return
 
     card = store.get_card(int(lot_s)) if (lot_s and lot_s.isdigit()) else None
@@ -268,23 +271,69 @@ def assignments_text(only_manager: str | None = None) -> str:
     return text if len(text) <= 3900 else text[:3900] + "\n…(обрезано)"
 
 
+MENU_PROMPT = "📂 <b>Меню бота</b>\nВыберите раздел:"
+
+
+def unassigned_text() -> str:
+    """Живые лоты без ответственного — компактный список ссылок."""
+    items = store.unassigned_cards()
+    if not items:
+        return ""
+    lines = [f"🆓 <b>Лоты без ответственного</b> ({len(items)}):"]
+    for card in items:
+        lines.append(f"• {_card_link(card)}")
+    text = "\n".join(lines)
+    return text if len(text) <= 3900 else text[:3900] + "\n…(обрезано)"
+
+
+def _menu_press(cbq: dict, which: str, tg) -> None:
+    """Нажата кнопка меню: показать соответствующий список, обновив сообщение меню."""
+    cb_id = cbq.get("id")
+    msg = cbq.get("message") or {}
+    chat_id = (msg.get("chat") or {}).get("id")
+    message_id = msg.get("message_id")
+    presser = _mention_user(cbq.get("from", {}))
+    if which == "mine":
+        body = assignments_text(only_manager=presser) or "У вас нет активных лотов."
+    elif which == "all":
+        body = assignments_text() or "Нет закреплённых лотов."
+    elif which == "free":
+        body = unassigned_text() or "Все активные лоты закреплены."
+    else:
+        tg.answer_callback_query(cb_id)
+        return
+    text = f"{MENU_PROMPT}\n\n{body}"
+    if len(text) > 4000:
+        text = text[:4000] + "\n…"
+    try:
+        tg.edit_message_text(chat_id, message_id, text, reply_markup=menu_keyboard())
+    except Exception as exc:  # noqa: BLE001 — «not modified» и т.п. не роняют
+        log.warning("меню: %s", exc)
+    tg.answer_callback_query(cb_id)
+
+
 def handle_message(msg: dict, tg) -> None:
-    """Текстовые команды: /my — мои лоты, /list — все."""
+    """Текстовые команды: /menu, /my, /list."""
     text = (msg.get("text") or "").strip()
     if not text.startswith("/"):
         return
     cmd = text.split()[0].split("@")[0].lower()
     chat_id = (msg.get("chat") or {}).get("id")
     thread = msg.get("message_thread_id")
-    if cmd in ("/my", "/мои"):
+    if cmd in ("/menu", "/меню"):
+        tg.send_message(chat_id, MENU_PROMPT, thread_id=thread, reply_markup=menu_keyboard())
+    elif cmd in ("/my", "/мои"):
         who = _mention_user(msg.get("from", {}))
         tg.send_message(chat_id, assignments_text(who) or "У вас нет закреплённых лотов.",
                         thread_id=thread)
     elif cmd in ("/list", "/lots", "/all", "/все"):
         tg.send_message(chat_id, assignments_text() or "Закреплённых лотов нет.", thread_id=thread)
+    elif cmd in ("/free", "/свободные"):
+        tg.send_message(chat_id, unassigned_text() or "Все активные лоты закреплены.", thread_id=thread)
     elif cmd in ("/help", "/start"):
         tg.send_message(chat_id,
-                        "Команды:\n/my — мои закреплённые лоты\n/list — все закреплённые лоты",
+                        "Команды:\n/menu — меню\n/my — мои лоты\n/list — все закреплённые\n"
+                        "/free — лоты без ответственного",
                         thread_id=thread)
 
 
