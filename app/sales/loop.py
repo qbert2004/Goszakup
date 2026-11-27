@@ -131,6 +131,24 @@ def _daily_loop() -> None:
             log.warning("суточный сбор упал: %s", exc)
 
 
+def _summary_loop(tg) -> None:
+    """Итоги дня по статусам лотов — раз в день в sales_summary_at (по Астане)."""
+    while True:
+        s = config.load()
+        try:
+            hour, minute = (int(x) for x in (s.sales_summary_at or "18:00").split(":"))
+        except (ValueError, TypeError):
+            hour, minute = 18, 0
+        time.sleep(_seconds_until(hour, minute))
+        try:
+            s = config.load()
+            tg.send_message(s.sales_chat_id, runner.daily_summary_text(),
+                            thread_id=s.sales_topic_new or None)
+            log.info("итоги дня отправлены")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("итоги дня не ушли: %s", exc)
+
+
 def _ensure_plans_menu(tg, s) -> None:
     """Опубликовать меню месяцев в ветке «Планы» один раз (id запоминаем)."""
     if not s.sales_topic_plans or store.get_meta("plans_menu_msg"):
@@ -161,6 +179,12 @@ def run() -> None:
     wb = Workbook(s.sheets_key_path, s.sheets_id)
     tg = Telegram(s.sales_bot_token)
     managers_box = {"m": []}
+    try:
+        # Сразу на старте, чтобы «Назначить» работало до первого скана (в суточном
+        # режиме скан спит до 9:00) — иначе список менеджеров пуст и кнопки не работают.
+        managers_box["m"] = wb.read_filters().managers
+    except Exception as exc:  # noqa: BLE001
+        log.warning("не прочитал менеджеров на старте: %s", exc)
 
     def scan_loop():
         first = True
@@ -189,11 +213,21 @@ def run() -> None:
 
     threading.Thread(target=scan_loop, name="sales-scan", daemon=True).start()
     threading.Thread(target=_daily_loop, name="sales-daily", daemon=True).start()
+    threading.Thread(target=_summary_loop, args=(tg,), name="sales-summary", daemon=True).start()
     _ensure_plans_menu(tg, s)
     log.info("бот продаж запущен, опрос кнопок начат")
 
     offset = None
+    last_mgr = 0.0
     while True:
+        # Освежаем список менеджеров из таблицы каждые 10 минут — чтобы новые
+        # (напр. Арман) появлялись в «Назначить» без ожидания суточного скана.
+        if time.time() - last_mgr > 600:
+            try:
+                managers_box["m"] = wb.read_filters().managers
+            except Exception as exc:  # noqa: BLE001
+                log.warning("обновление менеджеров: %s", exc)
+            last_mgr = time.time()
         try:
             updates = tg.get_updates(offset=offset, timeout=25)
         except Exception as exc:  # noqa: BLE001

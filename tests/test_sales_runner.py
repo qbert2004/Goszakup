@@ -187,6 +187,17 @@ def test_menu_free_and_my(db):
     assert tg.sent[-1]["kb"]["inline_keyboard"][0][0]["callback_data"] == "mn:mine"
 
 
+def test_daily_summary(db):
+    tg, wb = FakeTG(), FakeWB()
+    runner.dispatch({"new": [_card(70), _card(71)], "repeat": [_card(72)], "failed": []},
+                    tg, wb, "-100g", {"new": 839, "repeat": 841})
+    runner.handle_callback({"id": "c", "data": "t:70", "from": {"username": "ivan"}}, tg, wb, [])
+    txt = runner.daily_summary_text()
+    assert "Итоги дня" in txt and "лотов 3" in txt
+    assert "повторные 1" in txt
+    assert "Не назначен: 2" in txt and "Взят в работу: 1" in txt
+
+
 def test_purge_old_cards(db):
     tg, wb = FakeTG(), FakeWB()
     runner.dispatch({"new": [_card(60, end_raw="2000-01-01 09:00:00")], "failed": [], "repeat": []}, tg, wb, "-100g", {"new": 839})

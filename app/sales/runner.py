@@ -14,7 +14,7 @@ import time
 from datetime import datetime, timedelta
 
 from . import cards, sheets, store
-from .statuses import FIRST, SKIP, STATUSES
+from .statuses import FIRST, NEW, SKIP, STATUSES
 from .tg import (
     RU_MONTHS, assign_keyboard, main_keyboard, mention, menu_keyboard,
     month_menu_keyboard, parse_callback, status_keyboard,
@@ -284,6 +284,29 @@ def unassigned_text() -> str:
         lines.append(f"• {_card_link(card)}")
     text = "\n".join(lines)
     return text if len(text) <= 3900 else text[:3900] + "\n…(обрезано)"
+
+
+def daily_summary_text() -> str:
+    """Итоги дня: сколько лотов пришло и в каких статусах (по дневным карточкам)."""
+    from collections import Counter
+    from datetime import datetime as _dt
+    cards_ = store.cards_today()
+    day = _dt.now(ASTANA).strftime("%d.%m")
+    if not cards_:
+        return f"📊 <b>Итоги дня {day}</b>\nНовых лотов сегодня не было."
+    by_status = Counter((c.get("status") or NEW) for c in cards_)
+    by_cat = Counter(c.get("category") for c in cards_)
+    lines = [
+        f"📊 <b>Итоги дня {day}</b> — лотов {len(cards_)}",
+        f"(новые {by_cat.get('new', 0)} · повторные {by_cat.get('repeat', 0)} · "
+        f"несостоявшиеся {by_cat.get('failed', 0)})",
+        "",
+        "<b>По статусам:</b>",
+    ]
+    for st in [NEW, *STATUSES, SKIP]:
+        if by_status.get(st):
+            lines.append(f"• {st}: {by_status[st]}")
+    return "\n".join(lines)
 
 
 def _menu_press(cbq: dict, which: str, tg) -> None:

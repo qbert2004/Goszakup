@@ -144,6 +144,18 @@ def assigned_cards(include_closed: bool = False) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def cards_today() -> list[dict]:
+    """Карточки, отправленные сегодня (по Астане) — для итогов дня."""
+    now = datetime.now(ASTANA)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_utc = start.astimezone(timezone.utc).isoformat(timespec="seconds")
+    with connect() as c:
+        rows = c.execute(
+            "SELECT * FROM sales_cards WHERE sent_at >= ? ORDER BY status", (start_utc,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def unassigned_cards() -> list[dict]:
     """Живые карточки без ответственного (приём ещё идёт)."""
     now_s = datetime.now(ASTANA).strftime("%Y-%m-%d %H:%M:%S")
