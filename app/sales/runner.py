@@ -251,6 +251,11 @@ def _card_link(card: dict) -> str:
     return f'<a href="{url}">{label}</a>' if url else label
 
 
+# Сколько лотов максимум показывать в одном сообщении (остальное — в Google Sheets).
+LIST_LIMIT = 45
+_MORE = "…список длинный, показаны первые {n}. Полный — в Google Sheets «Воронка_Лотов»."
+
+
 def assignments_text(only_manager: str | None = None, title: str = "Закреплённые лоты") -> str:
     """Компактный список закреплённых лотов (номер-ссылка + статус), по менеджерам."""
     from collections import OrderedDict
@@ -263,12 +268,16 @@ def assignments_text(only_manager: str | None = None, title: str = "Закреп
     if not groups:
         return ""
     lines = [f"📋 <b>{title}</b>"]
+    shown = 0
     for mgr, items in groups.items():
         lines.append(f"\n<b>{mgr}</b> ({len(items)}):")
         for card in items:
+            if shown >= LIST_LIMIT:
+                lines.append(_MORE.format(n=LIST_LIMIT))
+                return "\n".join(lines)
             lines.append(f"• {_card_link(card)} — {card.get('status') or '—'}")
-    text = "\n".join(lines)
-    return text if len(text) <= 3900 else text[:3900] + "\n…(обрезано)"
+            shown += 1
+    return "\n".join(lines)
 
 
 MENU_PROMPT = "📂 <b>Меню бота</b>\nВыберите раздел:"
@@ -280,10 +289,11 @@ def unassigned_text() -> str:
     if not items:
         return ""
     lines = [f"🆓 <b>Лоты без ответственного</b> ({len(items)}):"]
-    for card in items:
+    for card in items[:LIST_LIMIT]:
         lines.append(f"• {_card_link(card)}")
-    text = "\n".join(lines)
-    return text if len(text) <= 3900 else text[:3900] + "\n…(обрезано)"
+    if len(items) > LIST_LIMIT:
+        lines.append(_MORE.format(n=LIST_LIMIT))
+    return "\n".join(lines)
 
 
 def daily_summary_text() -> str:
@@ -327,7 +337,7 @@ def _menu_press(cbq: dict, which: str, tg) -> None:
         return
     text = f"{MENU_PROMPT}\n\n{body}"
     if len(text) > 4000:
-        text = text[:4000] + "\n…"
+        text = text[:4000].rsplit("\n", 1)[0] + "\n…"  # по границе строки — HTML не ломаем
     try:
         tg.edit_message_text(chat_id, message_id, text, reply_markup=menu_keyboard())
         tg.answer_callback_query(cb_id)
