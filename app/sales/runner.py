@@ -251,7 +251,7 @@ def _card_link(card: dict) -> str:
     return f'<a href="{url}">{label}</a>' if url else label
 
 
-def assignments_text(only_manager: str | None = None) -> str:
+def assignments_text(only_manager: str | None = None, title: str = "Закреплённые лоты") -> str:
     """Компактный список закреплённых лотов (номер-ссылка + статус), по менеджерам."""
     from collections import OrderedDict
     groups: OrderedDict = OrderedDict()
@@ -262,7 +262,7 @@ def assignments_text(only_manager: str | None = None) -> str:
         groups.setdefault(mgr, []).append(card)
     if not groups:
         return ""
-    lines = ["📋 <b>Закреплённые лоты</b>"]
+    lines = [f"📋 <b>{title}</b>"]
     for mgr, items in groups.items():
         lines.append(f"\n<b>{mgr}</b> ({len(items)}):")
         for card in items:
@@ -317,9 +317,9 @@ def _menu_press(cbq: dict, which: str, tg) -> None:
     message_id = msg.get("message_id")
     presser = _mention_user(cbq.get("from", {}))
     if which == "mine":
-        body = assignments_text(only_manager=presser) or "У вас нет активных лотов."
+        body = assignments_text(only_manager=presser, title="Мои лоты") or "У вас нет активных лотов."
     elif which == "all":
-        body = assignments_text() or "Нет закреплённых лотов."
+        body = assignments_text(title="Все закреплённые — по ответственным") or "Нет закреплённых лотов."
     elif which == "free":
         body = unassigned_text() or "Все активные лоты закреплены."
     else:
@@ -330,9 +330,13 @@ def _menu_press(cbq: dict, which: str, tg) -> None:
         text = text[:4000] + "\n…"
     try:
         tg.edit_message_text(chat_id, message_id, text, reply_markup=menu_keyboard())
-    except Exception as exc:  # noqa: BLE001 — «not modified» и т.п. не роняют
-        log.warning("меню: %s", exc)
-    tg.answer_callback_query(cb_id)
+        tg.answer_callback_query(cb_id)
+    except Exception as exc:  # noqa: BLE001
+        if "not modified" in str(exc).lower():
+            tg.answer_callback_query(cb_id, "Список не изменился")
+        else:
+            log.warning("меню: %s", exc)
+            tg.answer_callback_query(cb_id)
 
 
 def handle_message(msg: dict, tg) -> None:
@@ -347,10 +351,11 @@ def handle_message(msg: dict, tg) -> None:
         tg.send_message(chat_id, MENU_PROMPT, thread_id=thread, reply_markup=menu_keyboard())
     elif cmd in ("/my", "/мои"):
         who = _mention_user(msg.get("from", {}))
-        tg.send_message(chat_id, assignments_text(who) or "У вас нет закреплённых лотов.",
+        tg.send_message(chat_id, assignments_text(who, title="Мои лоты") or "У вас нет закреплённых лотов.",
                         thread_id=thread)
     elif cmd in ("/list", "/lots", "/all", "/все"):
-        tg.send_message(chat_id, assignments_text() or "Закреплённых лотов нет.", thread_id=thread)
+        tg.send_message(chat_id, assignments_text(title="Все закреплённые") or "Закреплённых лотов нет.",
+                        thread_id=thread)
     elif cmd in ("/free", "/свободные"):
         tg.send_message(chat_id, unassigned_text() or "Все активные лоты закреплены.", thread_id=thread)
     elif cmd in ("/help", "/start"):
